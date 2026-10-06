@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "Servon Technician",
+    "slug": "servon-technician",
+    "version": "2.1.0",
+    "scheme": "servon",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.servon.technician"
+    },
+    "android": {
+      "package": "com.servon.technician",
+      "versionCode": 210,
+      "adaptiveIcon": {
+        "backgroundColor": "#1D40D8",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-secure-store",
+      "expo-sharing",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Servon uses your location when you punch in, start an on-site visit or complete a job."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Servon uses the camera to photograph the unit, serial number, parts and bills for the job.",
+          "photosPermission": "Servon lets you attach existing photos of the unit, parts or bills to a job."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#1D40D8",
+          "defaultChannel": "default"
+        }
+      ],
+      "expo-font"
+    ]
+  }
+}
