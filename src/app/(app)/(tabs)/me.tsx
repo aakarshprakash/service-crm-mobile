@@ -1,9 +1,11 @@
-import { useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Linking, Pressable, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { api, openPdf, type Envelope } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { getPushStatus, registerForPush, type PushStatus } from '@/lib/push';
+import { useUploads } from '@/lib/uploads';
 import { fieldError, useApiMutation, useLookups } from '@/lib/hooks';
 import { date, hours, money, monthName, num, today } from '@/lib/format';
 import type { AttendanceDay, LeaveBalance, LeaveRequest, Payslip } from '@/lib/types';
@@ -20,6 +22,15 @@ function shiftMonth(month: string, n: number) {
 /** Self service: attendance calendar, leave, payslips and account. */
 export default function Me() {
   const { user, logout, server } = useAuth();
+  const uploads = useUploads();
+  const confirmLogout = () =>
+    Alert.alert(
+      'Sign out?',
+      uploads.length
+        ? `${uploads.length} photo${uploads.length > 1 ? 's are' : ' is'} still waiting to upload. ${uploads.length > 1 ? 'They' : 'It'} will upload after you sign in again.`
+        : 'You will need your password to sign in again.',
+      [{ text: 'Cancel', style: 'cancel' }, { text: 'Sign out', style: 'destructive', onPress: logout }],
+    );
   return (
     <Screen>
       <Card>
@@ -44,6 +55,7 @@ export default function Me() {
       <Attendance />
       <Leave />
       <Payslips />
+      <PushCard />
       <Card>
         <Muted>Server: {server.replace(/^https?:\/\//, '')}</Muted>
         <Muted>App version {Constants.expoConfig?.version}</Muted>
@@ -52,10 +64,45 @@ export default function Me() {
           variant="secondary"
           icon="log-out-outline"
           style={{ marginTop: 12 }}
-          onPress={() => Alert.alert('Sign out?', 'You will need your password to sign in again.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Sign out', style: 'destructive', onPress: logout }])}
+          onPress={confirmLogout}
         />
       </Card>
     </Screen>
+  );
+}
+
+const PUSH_TEXT: Record<PushStatus, string> = {
+  registered: 'On. You get a notification when a job is assigned or rescheduled.',
+  denied: 'Off. Allow notifications for Servon in the phone settings.',
+  unavailable: 'Not available in this build of the app. Ask your administrator.',
+  error: 'Couldn’t register this phone. Check the connection and tap Retry.',
+};
+
+function PushCard() {
+  const [status, setStatus] = useState<PushStatus | null>(getPushStatus());
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!status) registerForPush().then(setStatus);
+  }, [status]);
+  const test = useApiMutation(() => api.post<Envelope<{ driver: string }>>('/auth/device/test'), {});
+  const retry = async () => {
+    setBusy(true);
+    setStatus(await registerForPush());
+    setBusy(false);
+  };
+  return (
+    <Card title="Notifications" right={status ? <Badge text={status === 'registered' ? 'on' : 'off'} tone={status === 'registered' ? 'completed' : 'pending'} /> : undefined}>
+      <Muted>{status ? PUSH_TEXT[status] : 'Checking…'}</Muted>
+      <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+        {status === 'registered' ? (
+          <Button title="Send test notification" size="sm" variant="secondary" icon="notifications-outline" style={{ flex: 1 }} loading={test.isPending} onPress={() => test.mutate(undefined)} />
+        ) : status === 'denied' ? (
+          <Button title="Open settings" size="sm" variant="secondary" icon="settings-outline" style={{ flex: 1 }} onPress={() => Linking.openSettings()} />
+        ) : (
+          <Button title="Retry" size="sm" variant="secondary" icon="refresh" style={{ flex: 1 }} loading={busy} onPress={retry} />
+        )}
+      </View>
+    </Card>
   );
 }
 

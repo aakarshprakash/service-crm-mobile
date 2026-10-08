@@ -82,20 +82,41 @@ function headers(extra: Record<string, string> = {}): Record<string, string> {
   return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
 }
 
+/** Absolute API URL and auth headers, for native transfers (uploads) outside fetch. */
+export function apiUrl(path: string): string {
+  return `${server}/api/v1${path}`;
+}
+
+export function authHeaders(): Record<string, string> {
+  return headers({ Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' });
+}
+
+export function hasToken(): boolean {
+  return !!token;
+}
+
+/** A request that hasn't answered in this long is treated as a dropped connection. */
+const TIMEOUT_MS = 30_000;
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const isForm = body instanceof FormData;
   const h = headers({ Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' });
   if (!isForm && body !== undefined) h['Content-Type'] = 'application/json';
 
   let res: Response;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), isForm ? TIMEOUT_MS * 4 : TIMEOUT_MS);
   try {
     res = await fetch(`${server}/api/v1${path}`, {
       method,
       headers: h,
       body: isForm ? (body as FormData) : body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
     });
   } catch {
-    throw new ApiError(0, 'Can’t reach the server. Check your internet connection.');
+    throw new ApiError(0, controller.signal.aborted ? 'The server is taking too long to respond. Check your connection and try again.' : 'Can’t reach the server. Check your internet connection.');
+  } finally {
+    clearTimeout(timer);
   }
 
   const text = await res.text();

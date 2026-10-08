@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { ApiError } from '@/lib/api';
@@ -38,9 +38,7 @@ export default function Login() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24, gap: 20 }} keyboardShouldPersistTaps="handled">
           <View style={{ alignItems: 'center', gap: 10 }}>
-            <View style={{ width: 64, height: 64, borderRadius: 18, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="construct" size={32} color="#fff" />
-            </View>
+            <Image source={require('../../assets/splash-icon.png')} style={{ width: 88, height: 88 }} accessibilityLabel="Servon" />
             <Text style={{ fontSize: 26, fontWeight: '800', color: colors.text }}>Servon</Text>
             <Muted>Technician app · sign in to see your jobs</Muted>
           </View>

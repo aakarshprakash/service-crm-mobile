@@ -3,8 +3,10 @@ import { Alert, Image, Pressable, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
-import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import { api, type Envelope, type Paginated } from '@/lib/api';
+import { api, ApiError, type Envelope, type Paginated } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
+import { queuePhoto } from '@/lib/photos';
+import { discardUpload, enqueueSignature, forgetCapture, rememberCapture, retryAll, retryUpload, useUploads, waitForVisit, type UploadItem } from '@/lib/uploads';
 import { fieldError, useApiMutation, useLookups, useNow } from '@/lib/hooks';
 import { label, METHOD_LABEL, money, qty, toMajor, toMinor } from '@/lib/format';
 import { tryPosition } from '@/lib/location';
@@ -12,6 +14,7 @@ import type { InventoryItem, Invoice, Job, Payment, Visit } from '@/lib/types';
 import { toast } from '@/components/toast';
 import { Badge, Button, Card, Empty, ErrorView, Field, Icon, Input, Loading, Muted, Row, Screen, Segmented, Sheet } from '@/components/ui';
 import { UpiSheet } from '@/components/UpiSheet';
+import { SignaturePad } from '@/components/SignaturePad';
 import { colors } from '@/components/theme';
 
 type Tab = 'call' | 'photos' | 'parts' | 'complete';
@@ -23,6 +26,7 @@ export default function VisitScreen() {
   const [tab, setTab] = useState<Tab>('call');
   const [done, setDone] = useState<{ invoice: Invoice | null; payment: Payment | null; status: string } | null>(null);
   const now = useNow(1000);
+  const queuedPhotos = useUploads(Number(id)).filter((u) => u.kind === 'image').length;
 
   if (job.isLoading || visit.isLoading) return <Loading />;
   if (job.error || visit.error || !job.data || !visit.data) return <ErrorView error={job.error ?? visit.error} onRetry={() => { job.refetch(); visit.refetch(); }} />;
@@ -57,7 +61,7 @@ export default function VisitScreen() {
           onChange={setTab}
           options={[
             { value: 'call', label: 'Call' },
-            { value: 'photos', label: 'Photos', count: v.images?.length || undefined },
+            { value: 'photos', label: 'Photos', count: (v.images?.filter((i) => i.type !== 'signature').length ?? 0) + queuedPhotos || undefined },
             { value: 'parts', label: 'Parts', count: v.inventory_usage?.length || undefined },
             { value: 'complete', label: 'Complete' },
           ]}
@@ -164,7 +168,8 @@ const PHOTO_TYPES = [
 
 function PhotosTab({ visit }: { visit: Visit }) {
   const qc = useQueryClient();
-  const [uploading, setUploading] = useState<string | null>(null);
+  const pending = useUploads(visit.id).filter((u) => u.kind === 'image');
+  const [preparing, setPreparing] = useState<string | null>(null);
 
   const take = async (type: string, fromLibrary: boolean) => {
     const perm = fromLibrary ? await ImagePicker.requestMediaLibraryPermissionsAsync() : await ImagePicker.requestCameraPermissionsAsync();
@@ -172,27 +177,27 @@ function PhotosTab({ visit }: { visit: Visit }) {
       toast.error(fromLibrary ? 'Allow photo access in settings to attach photos.' : 'Allow camera access in settings to take photos.');
       return;
     }
-    const result = fromLibrary
-      ? await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.9 })
-      : await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.9 });
-    if (result.canceled || !result.assets?.[0]) return;
-    setUploading(type);
+    // If Android closes the app while the camera is open, the photo is recovered on restart.
+    if (!fromLibrary) rememberCapture(visit.id, visit.job_id, type);
+    let result: ImagePicker.ImagePickerResult;
     try {
-      // Shrink before upload: field networks are slow and the server keeps up to 1600px anyway.
-      const asset = result.assets[0];
-      const ctx = ImageManipulator.manipulate(asset.uri);
-      if (Math.max(asset.width, asset.height) > 1600) ctx.resize(asset.width >= asset.height ? { width: 1600 } : { height: 1600 });
-      const saved = await (await ctx.renderAsync()).saveAsync({ compress: 0.75, format: SaveFormat.JPEG });
-      const fd = new FormData();
-      fd.append('type', type);
-      fd.append('image', { uri: saved.uri, name: `${type}-${Date.now()}.jpg`, type: 'image/jpeg' } as unknown as Blob);
-      await api.post(`/visits/${visit.id}/images`, fd);
-      toast.success('Photo uploaded');
-      qc.invalidateQueries({ queryKey: ['visit', String(visit.id)] });
-    } catch (e) {
-      toast.error((e as Error).message);
+      result = fromLibrary
+        ? await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1, allowsMultipleSelection: true, selectionLimit: 10, orderedSelection: true })
+        : await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 });
+    } catch {
+      toast.error(fromLibrary ? 'Couldn’t open the gallery.' : 'Couldn’t open the camera.');
+      return;
     } finally {
-      setUploading(null);
+      forgetCapture();
+    }
+    if (result.canceled || !result.assets?.length) return;
+    setPreparing(type);
+    try {
+      for (const asset of result.assets) await queuePhoto(visit.id, type, asset);
+    } catch {
+      toast.error('Couldn’t save the photo on the phone. Free up some storage and try again.');
+    } finally {
+      setPreparing(null);
     }
   };
 
@@ -211,27 +216,68 @@ function PhotosTab({ visit }: { visit: Visit }) {
     ]);
 
   return (
-    <Screen>
+    <Screen refreshing={false} onRefresh={() => { retryAll(); qc.invalidateQueries({ queryKey: ['visit', String(visit.id)] }); }}>
       {PHOTO_TYPES.map((t) => {
         const photos = visit.images?.filter((i) => i.type === t.type) ?? [];
+        const queued = pending.filter((u) => u.type === t.type);
+        const count = photos.length + queued.length;
         return (
-          <Card key={t.type} title={t.label} right={<Muted>{photos.length || ''}</Muted>}>
+          <Card key={t.type} title={t.label} right={<Muted>{count || ''}</Muted>}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {photos.map((p) => (
                 <Pressable key={p.id} onLongPress={() => remove(p.id)} accessibilityHint="Long press to delete">
-                  <Image source={{ uri: p.url }} style={{ width: 84, height: 84, borderRadius: 8, backgroundColor: colors.border }} />
+                  <Image source={{ uri: p.url }} style={thumb} />
                 </Pressable>
               ))}
+              {queued.map((u) => (
+                <PendingThumb key={u.id} item={u} />
+              ))}
             </View>
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: photos.length ? 10 : 0 }}>
-              <Button title="Camera" icon="camera-outline" size="sm" style={{ flex: 1 }} loading={uploading === t.type} onPress={() => take(t.type, false)} />
-              <Button title="Gallery" icon="images-outline" size="sm" variant="secondary" style={{ flex: 1 }} disabled={!!uploading} onPress={() => take(t.type, true)} />
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: count ? 10 : 0 }}>
+              <Button title="Camera" icon="camera-outline" size="sm" style={{ flex: 1 }} loading={preparing === t.type} disabled={!!preparing} onPress={() => take(t.type, false)} />
+              <Button title="Gallery" icon="images-outline" size="sm" variant="secondary" style={{ flex: 1 }} disabled={!!preparing} onPress={() => take(t.type, true)} />
             </View>
           </Card>
         );
       })}
-      <Muted style={{ textAlign: 'center' }}>Long-press a photo to delete it.</Muted>
+      <Muted style={{ textAlign: 'center' }}>Photos upload in the background and are kept on the phone until they reach the office, even without signal. Long-press a photo to delete it.</Muted>
     </Screen>
+  );
+}
+
+const thumb = { width: 84, height: 84, borderRadius: 8, backgroundColor: colors.border };
+
+/** A photo still on the phone: upload progress, waiting for network, or refused (retry / remove). */
+function PendingThumb({ item }: { item: UploadItem }) {
+  const failed = item.status === 'failed';
+  const onPress = () =>
+    Alert.alert(
+      failed ? 'Photo not uploaded' : 'Photo waiting to upload',
+      failed ? item.error ?? 'The server refused this photo.' : item.error ?? 'It will upload automatically when the connection is back.',
+      [
+        { text: 'Close', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: () => discardUpload(item.id) },
+        { text: 'Retry now', onPress: () => retryUpload(item.id) },
+      ],
+    );
+  return (
+    <Pressable onPress={onPress} accessibilityLabel={failed ? 'Upload failed, tap for options' : 'Uploading photo'}>
+      <Image source={{ uri: item.uri }} style={[thumb, { opacity: 0.55 }]} />
+      <View style={{ position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center' }}>
+        {failed ? (
+          <Icon name="alert-circle" size={28} color={colors.red} />
+        ) : item.status === 'uploading' ? (
+          <Text style={{ fontWeight: '700', color: colors.text }}>{Math.round(item.progress * 100)}%</Text>
+        ) : (
+          <Icon name="cloud-upload-outline" size={24} color={colors.text} />
+        )}
+      </View>
+      {item.status === 'uploading' && (
+        <View style={{ position: 'absolute', left: 6, right: 6, bottom: 6, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.7)' }}>
+          <View style={{ width: `${Math.max(4, item.progress * 100)}%`, height: 4, borderRadius: 2, backgroundColor: colors.brand }} />
+        </View>
+      )}
+    </Pressable>
   );
 }
 
@@ -351,6 +397,14 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
   });
   const [pickAction, setPickAction] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [signing, setSigning] = useState(false);
+  const { user } = useAuth();
+  const signatureRequired = !!user?.tenant?.require_signature;
+  const uploads = useUploads(visit.id);
+  const queuedSignature = uploads.find((u) => u.kind === 'signature');
+  const savedSignature = visit.images?.find((i) => i.type === 'signature');
+  const hasSignature = !!queuedSignature || !!savedSignature;
+  const [waitingUploads, setWaitingUploads] = useState(false);
   const total = toMinor(form.labour_charge) + toMinor(form.spare_charge);
   const due = total + previousBalance;
   const collects = ['cash', 'upi', 'cheque', 'bank_transfer'].includes(form.payment_method);
@@ -359,6 +413,19 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
 
   const m = useApiMutation(
     async () => {
+      if (form.status === 'completed' && signatureRequired && !hasSignature) {
+        setSigning(true);
+        throw new ApiError(422, 'Take the customer’s signature before completing the visit.', { signature: ['Take the customer’s signature before completing the visit.'] });
+      }
+      // Photos and the signature must reach the server before the visit closes.
+      if (uploads.length) {
+        setWaitingUploads(true);
+        try {
+          await waitForVisit(visit.id);
+        } finally {
+          setWaitingUploads(false);
+        }
+      }
       const pos = await tryPosition(5000);
       return api.post<Envelope<{ invoice: Invoice | null; payment: Payment | null }>>(`/visits/${visit.id}/complete`, {
         status: form.status,
@@ -375,6 +442,7 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
     {
       toastValidation: true,
       onSuccess: (r) => {
+        qc.invalidateQueries({ queryKey: ['visit', String(visit.id)] });
         qc.invalidateQueries({ queryKey: ['tech-job', String(job.id)] });
         qc.invalidateQueries({ queryKey: ['tech-dashboard'] });
         qc.invalidateQueries({ queryKey: ['tech-jobs'] });
@@ -458,8 +526,48 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
         </>
       )}
 
+      {form.status !== 'cancelled' && (
+        <Card
+          title="Customer signature"
+          right={<Badge text={signatureRequired && form.status === 'completed' ? 'required' : 'optional'} tone={signatureRequired && form.status === 'completed' ? (hasSignature ? 'completed' : 'pending') : 'cancelled'} />}
+        >
+          {hasSignature ? (
+            <View style={{ gap: 6 }}>
+              <Image
+                source={{ uri: queuedSignature?.uri ?? savedSignature?.url }}
+                resizeMode="contain"
+                style={{ height: 96, borderRadius: 8, borderWidth: 1, borderColor: e('signature') ? colors.red : colors.border, backgroundColor: '#fff' }}
+              />
+              <Muted>
+                Signed by {queuedSignature?.signerName ?? visit.signer_name ?? 'customer'}
+                {queuedSignature ? (queuedSignature.status === 'failed' ? ' · not uploaded' : ' · uploading…') : ''}
+              </Muted>
+            </View>
+          ) : (
+            <Muted style={e('signature') ? { color: colors.red } : undefined}>
+              {e('signature') ?? 'After the work is done, ask the customer to sign on the phone. It is printed on the invoice.'}
+            </Muted>
+          )}
+          <Button
+            title={hasSignature ? 'Sign again' : 'Take customer signature'}
+            icon="create-outline"
+            variant={hasSignature ? 'ghost' : 'secondary'}
+            style={{ marginTop: 10 }}
+            onPress={() => setSigning(true)}
+          />
+        </Card>
+      )}
+
+      {uploads.length > 0 && (
+        <Muted style={{ textAlign: 'center' }}>
+          {uploads.some((u) => u.status === 'failed')
+            ? 'An upload was refused by the server. Open the Photos tab to retry or remove it.'
+            : `${uploads.length} upload${uploads.length > 1 ? 's' : ''} in progress. The visit is saved as soon as ${uploads.length > 1 ? 'they finish' : 'it finishes'}.`}
+        </Muted>
+      )}
+
       <Button
-        title={form.status === 'completed' ? 'Save & generate invoice' : form.status === 'pending' ? 'Save as pending' : 'Cancel this job'}
+        title={waitingUploads ? 'Finishing uploads…' : form.status === 'completed' ? 'Save & generate invoice' : form.status === 'pending' ? 'Save as pending' : 'Cancel this job'}
         size="lg"
         variant={form.status === 'cancelled' ? 'danger' : 'primary'}
         icon="checkmark-circle"
@@ -475,6 +583,17 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
         ))}
       </Sheet>
       <UpiSheet open={showQr} onClose={() => setShowQr(false)} amount={collected} note={`Job ${job.crm_call_id}`} branchId={job.branch_id} />
+      <SignaturePad
+        open={signing}
+        defaultName={job.customer?.name}
+        onClose={() => setSigning(false)}
+        onSave={(png, name) => {
+          enqueueSignature(visit.id, png, name);
+          setSigning(false);
+          m.reset();
+          toast.success('Signature saved');
+        }}
+      />
     </Screen>
   );
 }

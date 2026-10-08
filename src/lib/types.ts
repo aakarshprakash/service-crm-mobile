@@ -15,6 +15,7 @@ export interface Tenant {
   timezone: string;
   currency: string;
   online_payments: boolean;
+  require_signature?: boolean;
 }
 
 export interface User {
@@ -83,6 +84,8 @@ export interface Visit {
   total_charge: number;
   payment_method: string | null;
   amount_collected: number;
+  signer_name?: string | null;
+  signed_at?: string | null;
   technician?: Named;
   inventory_usage?: Usage[];
   images?: JobImage[];

@@ -2,20 +2,21 @@
   "expo": {
     "name": "Servon Technician",
     "slug": "servon-technician",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "scheme": "servon",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "backgroundColor": "#F8FAFC",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.servon.technician"
     },
     "android": {
       "package": "com.servon.technician",
-      "versionCode": 210,
+      "versionCode": 211,
       "adaptiveIcon": {
-        "backgroundColor": "#1D40D8",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -23,8 +24,14 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "CAMERA"
+        "CAMERA",
+        "POST_NOTIFICATIONS"
       ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
+      ],
+      "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -48,17 +55,29 @@
         "expo-image-picker",
         {
           "cameraPermission": "Servon uses the camera to photograph the unit, serial number, parts and bills for the job.",
-          "photosPermission": "Servon lets you attach existing photos of the unit, parts or bills to a job."
+          "photosPermission": "Servon lets you attach existing photos of the unit, parts or bills to a job.",
+          "microphonePermission": false
         }
       ],
       [
         "expo-notifications",
         {
-          "color": "#1D40D8",
+          "icon": "./assets/notification-icon.png",
+          "color": "#2563EB",
           "defaultChannel": "default"
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "./plugins/withReleaseSigning",
+      "./plugins/withShortCmakeObjectPaths"
     ]
   }
 }

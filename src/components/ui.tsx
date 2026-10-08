@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useNetworkState } from 'expo-network';
 import { ApiError } from '@/lib/api';
 import { label } from '@/lib/format';
 import { colors, radius, statusTone } from './theme';
@@ -155,9 +156,12 @@ export function H1({ children }: { children: ReactNode }) {
 }
 
 export function Loading() {
+  const net = useNetworkState();
+  const offline = net.isConnected === false || net.isInternetReachable === false;
   return (
-    <View style={{ padding: 40, alignItems: 'center' }}>
+    <View style={{ padding: 40, alignItems: 'center', gap: 12 }}>
       <ActivityIndicator size="large" color={colors.brand} />
+      {offline && <Text style={{ color: colors.muted, textAlign: 'center' }}>No internet connection. This loads automatically when you’re back online.</Text>}
     </View>
   );
 }

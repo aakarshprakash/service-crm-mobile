@@ -11,11 +11,11 @@
     "preview": {
       "distribution": "internal",
       "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://api.yourdomain.com" }
+      "env": { "EXPO_PUBLIC_API_URL": "https://service-crm.peoplenex.online" }
     },
     "production": {
       "android": { "buildType": "app-bundle" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://api.yourdomain.com" }
+      "env": { "EXPO_PUBLIC_API_URL": "https://service-crm.peoplenex.online" }
     }
   },
   "submit": {
