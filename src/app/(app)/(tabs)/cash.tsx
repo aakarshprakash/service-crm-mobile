@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from '@/components/Text';
 import { useQuery } from '@tanstack/react-query';
+import { router } from 'expo-router';
 import { api, type Envelope, type Paginated } from '@/lib/api';
 import { fieldError, useApiMutation } from '@/lib/hooks';
 import { date, METHOD_LABEL, money, time, toMajor, toMinor, today } from '@/lib/format';
 import type { CashSummary } from '@/lib/types';
-import { Badge, Button, Card, ErrorView, Field, Input, Loading, Muted, Row, Screen } from '@/components/ui';
+import { Badge, Button, Card, ErrorView, Field, Input, ListRow, Loading, Muted, Row, Screen } from '@/components/ui';
 import { colors } from '@/components/theme';
 
 interface CashCloseRow { id: number; close_date: string; expected_in_hand: number; amount_confirmed: number; status: string }
@@ -41,6 +43,7 @@ export default function Cash() {
         <Row k="Cash collected" v={money(s.cash)} />
         <Row k="Cheques collected" v={money(s.cheque)} />
         <Row k="UPI / bank (no hand-over)" v={money(s.digital)} vStyle={{ color: colors.muted }} />
+        {!!s.expenses && <Row k="Expenses paid from cash" v={`− ${money(s.expenses)}`} vStyle={{ color: colors.red }} />}
         <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 6 }} />
         <Row k="You should be holding" v={money(s.expected_in_hand)} strong />
       </Card>
@@ -64,6 +67,38 @@ export default function Cash() {
             {fieldError(submit.error, 'date') && <Text style={{ color: colors.red }}>{fieldError(submit.error, 'date')}</Text>}
             <Button title="Submit cash close" loading={submit.isPending} onPress={() => submit.mutate(undefined)} />
           </View>
+        </Card>
+      )}
+
+      <Card padded={false}>
+        <ListRow
+          first
+          icon="receipt-outline"
+          tone={colors.amber}
+          title="My expenses"
+          detail={s.expense_claims?.length ? `${s.expense_claims.length} paid from cash in this close` : 'Fuel, parking, parts bought locally'}
+          onPress={() => router.push('/expenses')}
+        />
+        <ListRow icon="add-circle-outline" title="Add an expense" onPress={() => router.push('/expenses?new=1')} />
+      </Card>
+
+      {!!s.expense_claims?.length && (
+        <Card title="Expenses paid from cash" padded={false}>
+          {s.expense_claims.map((c, i) => (
+            <View key={c.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: '600' }}>{c.category ?? 'Expense'}{c.call_id ? ` · ${c.call_id}` : ''}</Text>
+                <Muted>
+                  {date(c.claim_date)}
+                  {c.description ? ` · ${c.description}` : ''}
+                </Muted>
+              </View>
+              <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                <Text style={{ fontWeight: '600', color: colors.text }}>{money(c.amount)}</Text>
+                <Badge text={c.status} />
+              </View>
+            </View>
+          ))}
         </Card>
       )}
 

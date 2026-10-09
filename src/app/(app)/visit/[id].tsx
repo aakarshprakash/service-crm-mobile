@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Alert, Image, Pressable, Text, View } from 'react-native';
+import { Alert, Image, Keyboard, Pressable, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
@@ -8,13 +9,15 @@ import { useAuth } from '@/lib/auth';
 import { queuePhoto } from '@/lib/photos';
 import { discardUpload, enqueueSignature, forgetCapture, rememberCapture, retryAll, retryUpload, useUploads, waitForVisit, type UploadItem } from '@/lib/uploads';
 import { fieldError, useApiMutation, useLookups, useNow } from '@/lib/hooks';
-import { label, METHOD_LABEL, money, qty, toMajor, toMinor } from '@/lib/format';
+import { dateTime, label, METHOD_LABEL, money, qty, toMajor, toMinor } from '@/lib/format';
 import { tryPosition } from '@/lib/location';
 import type { InventoryItem, Invoice, Job, Payment, Visit } from '@/lib/types';
 import { toast } from '@/components/toast';
-import { Badge, Button, Card, Empty, ErrorView, Field, Icon, Input, Loading, Muted, Row, Screen, Segmented, Sheet } from '@/components/ui';
+import { Badge, Button, Card, Empty, ErrorView, Field, Icon, Input, Loading, Muted, Row, Screen, Segmented, Sheet, Stepper } from '@/components/ui';
 import { UpiSheet } from '@/components/UpiSheet';
 import { SignaturePad } from '@/components/SignaturePad';
+import { BarcodeScanner } from '@/components/BarcodeScanner';
+import { VoiceNotes } from '@/components/VoiceNotes';
 import { colors } from '@/components/theme';
 
 type Tab = 'call' | 'photos' | 'parts' | 'complete';
@@ -47,7 +50,7 @@ export default function VisitScreen() {
   return (
     <>
       <Stack.Screen options={{ title: job.data.crm_call_id }} />
-      <View style={{ backgroundColor: colors.violet, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+      <View style={{ backgroundColor: colors.navy, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Text style={{ color: '#fff', fontWeight: '600' }}>
           <Icon name="timer-outline" size={16} color="#fff" /> {label(v.service_type)}
         </Text>
@@ -61,7 +64,7 @@ export default function VisitScreen() {
           onChange={setTab}
           options={[
             { value: 'call', label: 'Call' },
-            { value: 'photos', label: 'Photos', count: (v.images?.filter((i) => i.type !== 'signature').length ?? 0) + queuedPhotos || undefined },
+            { value: 'photos', label: 'Photos', count: (v.images?.filter((i) => i.type !== 'signature').length ?? 0) + (v.voice_notes?.length ?? 0) + queuedPhotos || undefined },
             { value: 'parts', label: 'Parts', count: v.inventory_usage?.length || undefined },
             { value: 'complete', label: 'Complete' },
           ]}
@@ -97,7 +100,28 @@ function CallTab({ job, visit }: { job: Job; visit: Visit }) {
   });
   const e = (n: string) => fieldError(m.error, n);
   const [pickType, setPickType] = useState(false);
+  const [scanFor, setScanFor] = useState<'serial_no' | 'outdoor_serial_no' | null>(null);
   const typeName = lookups?.complaint_types.find((t) => String(t.id) === form.complaint_type_id)?.name;
+  const qc = useQueryClient();
+  const [locating, setLocating] = useState(false);
+  const saveLocation = async () => {
+    setLocating(true);
+    try {
+      const pos = await tryPosition(15000);
+      if (!pos) {
+        toast.error('Couldn’t get your location. Turn on GPS and try again.');
+        return;
+      }
+      await api.post(`/visits/${visit.id}/customer-location`, pos);
+      toast.success('Customer location saved');
+      qc.invalidateQueries({ queryKey: ['tech-job', String(job.id)] });
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setLocating(false);
+    }
+  };
+  const source = c?.location_source ? { customer: 'shared by the customer', office: 'set by the office', technician: 'saved on site' }[c.location_source] : undefined;
 
   return (
     <Screen>
@@ -106,8 +130,9 @@ function CallTab({ job, visit }: { job: Job; visit: Visit }) {
         <Muted>{c?.phone}</Muted>
       </Card>
       <Field label="Complaint type">
-        <Pressable onPress={() => setPickType(true)} style={{ borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 10, height: 46, paddingHorizontal: 12, justifyContent: 'center', backgroundColor: '#fff' }}>
+        <Pressable onPress={() => setPickType(true)} style={{ borderWidth: 1, borderColor: '#D5DBE5', borderRadius: 12, height: 48, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff' }}>
           <Text style={{ color: typeName ? colors.text : colors.faint, fontSize: 16 }}>{typeName ?? 'Select…'}</Text>
+          <Icon name="chevron-down" size={18} color={colors.faint} />
         </Pressable>
       </Field>
       <Field label="Complaint details" error={e('complaint_details')}>
@@ -134,19 +159,39 @@ function CallTab({ job, visit }: { job: Job; visit: Visit }) {
       <Field label="Alternate phone" error={e('alt_phone')}>
         <Input value={form.alt_phone} keyboardType="phone-pad" onChangeText={(v) => set('alt_phone', v)} />
       </Field>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}>
-          <Field label="Serial no." error={e('serial_no')}>
-            <Input value={form.serial_no} autoCapitalize="characters" onChangeText={(v) => set('serial_no', v)} />
-          </Field>
-        </View>
-        <View style={{ flex: 1 }}>
-          <Field label="Outdoor serial" error={e('outdoor_serial_no')}>
-            <Input value={form.outdoor_serial_no} autoCapitalize="characters" onChangeText={(v) => set('outdoor_serial_no', v)} />
-          </Field>
-        </View>
-      </View>
+      {([['serial_no', 'Serial no.'], ['outdoor_serial_no', 'Outdoor unit serial']] as const).map(([key, title]) => (
+        <Field key={key} label={title} error={e(key)}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Input value={form[key]} autoCapitalize="characters" onChangeText={(v) => set(key, v)} style={{ flex: 1 }} placeholder="Type or scan" />
+            <Pressable
+              onPress={() => setScanFor(key)}
+              accessibilityRole="button"
+              accessibilityLabel={`Scan ${title}`}
+              style={({ pressed }) => ({ width: 48, height: 48, borderRadius: 12, backgroundColor: pressed ? colors.brandDark : colors.brand, alignItems: 'center', justifyContent: 'center' })}
+            >
+              <Icon name="barcode-outline" size={24} color="#fff" />
+            </Pressable>
+          </View>
+        </Field>
+      ))}
       <Button title="Save call details" loading={m.isPending} onPress={() => m.mutate(undefined)} />
+
+      <Card title="Customer location">
+        <Muted>
+          {c?.lat != null ? `Location ${source ?? 'saved'}${c.location_updated_at ? ` · ${dateTime(c.location_updated_at)}` : ''}.` : 'No location saved for this customer yet.'}
+        </Muted>
+        <Button title="I'm at the customer's place: save location" icon="location-outline" variant="secondary" size="sm" style={{ marginTop: 10 }} loading={locating} onPress={saveLocation} />
+      </Card>
+
+      <BarcodeScanner
+        open={!!scanFor}
+        title={scanFor === 'outdoor_serial_no' ? 'Scan outdoor serial' : 'Scan serial number'}
+        onClose={() => setScanFor(null)}
+        onScanned={(value) => {
+          if (scanFor) set(scanFor, value);
+          toast.info('Scanned. Tap “Save call details” to keep it.');
+        }}
+      />
       <Sheet open={pickType} onClose={() => setPickType(false)} title="Complaint type">
         {lookups?.complaint_types.map((t) => (
           <Pressable key={t.id} onPress={() => { set('complaint_type_id', String(t.id)); setPickType(false); }} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
@@ -217,6 +262,7 @@ function PhotosTab({ visit }: { visit: Visit }) {
 
   return (
     <Screen refreshing={false} onRefresh={() => { retryAll(); qc.invalidateQueries({ queryKey: ['visit', String(visit.id)] }); }}>
+      <VoiceNotes visit={visit} />
       {PHOTO_TYPES.map((t) => {
         const photos = visit.images?.filter((i) => i.type === t.type) ?? [];
         const queued = pending.filter((u) => u.type === t.type);
@@ -341,13 +387,17 @@ function PartsTab({ visit }: { visit: Visit }) {
           <Muted>
             {picked.code} · {money(picked.unit_price)} · {qty(picked.stock_total ?? 0)} {picked.unit_of_measure} at your branch
           </Muted>
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 12, alignItems: 'flex-end' }}>
-            <View style={{ flex: 1 }}>
-              <Field label={`Quantity (${picked.unit_of_measure})`} error={fieldError(add.error, 'quantity')}>
-                <Input value={quantity} keyboardType="decimal-pad" onChangeText={(v) => setQuantity(v.replace(/[^\d.]/g, ''))} />
-              </Field>
-            </View>
-            <Button title="Add" icon="add" loading={add.isPending} disabled={!Number(quantity)} onPress={() => add.mutate(undefined)} />
+          <View style={{ gap: 10, marginTop: 12 }}>
+            <Field label={`Quantity (${picked.unit_of_measure})`} error={fieldError(add.error, 'quantity')}>
+              <Stepper
+                value={quantity}
+                onChange={setQuantity}
+                step={picked.unit_of_measure === 'nos' ? 1 : 0.5}
+                decimals={picked.unit_of_measure === 'nos' ? 0 : 3}
+                max={Math.max(Number(picked.stock_total ?? 0), picked.unit_of_measure === 'nos' ? 1 : 0.5)}
+              />
+            </Field>
+            <Button title={`Add ${quantity || 0} ${picked.unit_of_measure}`} icon="add" loading={add.isPending} disabled={!Number(quantity)} onPress={() => add.mutate(undefined)} />
           </View>
         </Card>
       ) : (
@@ -361,7 +411,7 @@ function PartsTab({ visit }: { visit: Visit }) {
               items.data.data.map((it, i) => {
                 const stock = Number(it.stock_total ?? 0);
                 return (
-                  <Pressable key={it.id} disabled={stock <= 0} onPress={() => setPicked(it)} style={{ padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, opacity: stock > 0 ? 1 : 0.5, flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
+                  <Pressable key={it.id} disabled={stock <= 0} onPress={() => { Keyboard.dismiss(); setPicked(it); }} style={{ padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, opacity: stock > 0 ? 1 : 0.5, flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontWeight: '600', color: colors.text }}>{it.name}</Text>
                       <Muted>
@@ -517,7 +567,7 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
               </Field>
               {form.payment_method === 'upi' && collected > 0 && <Button title="Show UPI QR to customer" variant="secondary" icon="qr-code-outline" onPress={() => setShowQr(true)} />}
               {form.payment_method !== 'cash' && (
-                <Field label={form.payment_method === 'cheque' ? 'Cheque number' : form.payment_method === 'upi' ? 'UPI reference' : 'UTR / reference'} required error={e('reference_no') ?? e('payment_reference')}>
+                <Field label={form.payment_method === 'cheque' ? 'Cheque number' : form.payment_method === 'upi' ? 'UPI reference (optional)' : 'UTR / reference'} required={form.payment_method !== 'upi'} error={e('reference_no') ?? e('payment_reference')}>
                   <Input value={form.payment_reference} autoCapitalize="characters" onChangeText={(v) => set('payment_reference', v)} />
                 </Field>
               )}

@@ -9,9 +9,10 @@ React Native app for field technicians, built with Expo SDK 57 and Expo Router. 
 | **Home** | Punch in / out (GPS, geofence-aware), service in progress, job counts, today's & overdue visits, cash in hand, assets issued to them |
 | **My jobs** | Open / active / pending / done lists, search by call ID, phone or serial, infinite scroll |
 | **Job** | Customer call, WhatsApp, Google Maps directions; complaint, product & warranty; visit history; **Start service** (on site needs location); collect an unpaid balance |
-| **Visit** | Live timer; correct call details; photos by type (camera or gallery, several at once); add/remove parts with stock check; **customer signature**; complete as completed / pending / cancelled with charges and payment |
+| **Visit** | Live timer; correct call details with **barcode scanning** for serial numbers; "I'm at the customer's place" saves the location; photos by type (camera or gallery, several at once) and **voice notes**; add/remove parts with **+/− quantity**; **customer signature**; complete as completed / pending / cancelled with charges and payment (UPI reference optional) |
 | **Payments** | Cash, UPI, cheque, bank or credit; **UPI QR** the customer scans (from the company's UPI accounts), then enter the UPI reference |
-| **My cash** | Expected cash in hand, today's collections, daily cash close (in order), recent closes |
+| **Cash** | Expected cash in hand, today's collections, expenses paid from collected cash, daily cash close (in order), recent closes |
+| **Expenses** | Add fuel / parking / parts bought locally with a receipt photo, paid from collected cash or own money; status (pending / approved / rejected with reason); withdraw a pending one |
 | **Parts** | Search spares / consumables, stock at your branch and every other branch |
 | **Me** | Attendance calendar, leave balances, apply / cancel leave, payslip PDFs, notification status + test, sign out |
 

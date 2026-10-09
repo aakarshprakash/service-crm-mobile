@@ -44,7 +44,9 @@ let onUnauthenticated: (() => void) | null = null;
 
 export async function loadSession(): Promise<{ token: string | null; server: string }> {
   token = await SecureStore.getItemAsync(TOKEN_KEY);
-  server = (await SecureStore.getItemAsync(SERVER_KEY)) ?? DEFAULT_SERVER;
+  // One Servon API: the address is built into the app. Forget any address an older version saved.
+  server = DEFAULT_SERVER;
+  await SecureStore.deleteItemAsync(SERVER_KEY).catch(() => undefined);
   return { token, server };
 }
 

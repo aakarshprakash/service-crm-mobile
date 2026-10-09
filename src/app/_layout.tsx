@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { AppState, Linking, Platform, Pressable, Text, View } from 'react-native';
+import { AppState, Linking, Platform, Pressable, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { Stack, router, type ErrorBoundaryProps } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -8,6 +9,7 @@ import * as Network from 'expo-network';
 import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
+import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold } from '@expo-google-fonts/inter';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { api, ApiError, type Envelope } from '@/lib/api';
 import { registerForPush, routeForNotification } from '@/lib/push';
@@ -41,8 +43,9 @@ focusManager.setEventListener((setFocused) => {
 
 // Photos and signatures queued on the phone keep uploading across restarts.
 initUploads();
-onUploaded((visitId) => {
-  queryClient.invalidateQueries({ queryKey: ['visit', String(visitId)] });
+onUploaded((visitId, item) => {
+  if (item.kind === 'receipt') queryClient.invalidateQueries({ queryKey: ['my-expenses'] });
+  else queryClient.invalidateQueries({ queryKey: ['visit', String(visitId)] });
 });
 
 /** Last line of defence: a crash in a screen shows this instead of closing the app. */
@@ -62,6 +65,9 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 }
 
 export default function RootLayout() {
+  // Inter is bundled with the app; this resolves almost instantly.
+  const [fontsReady, fontError] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold });
+  if (!fontsReady && !fontError) return <View style={{ flex: 1, backgroundColor: colors.bg }} />;
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>

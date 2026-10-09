@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
+import { FlatList, Pressable, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { useQuery } from '@tanstack/react-query';
 import { api, type Envelope, type Paginated } from '@/lib/api';
 import { useAuth } from '@/lib/auth';

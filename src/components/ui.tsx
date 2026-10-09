@@ -1,14 +1,14 @@
 import type { ReactNode } from 'react';
 import {
-  ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View,
-  type StyleProp, type TextInputProps, type TextStyle, type ViewStyle,
+  ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle,
 } from 'react-native';
+import { FONT, Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNetworkState } from 'expo-network';
 import { ApiError } from '@/lib/api';
 import { label } from '@/lib/format';
-import { colors, radius, statusTone } from './theme';
+import { colors, radius, shadow, statusTone } from './theme';
 
 export type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -211,24 +211,86 @@ export function Sheet({ open, onClose, title, children, footer }: { open: boolea
   );
 }
 
-export function StatTile({ label: l, value, tone = colors.text, onPress }: { label: string; value: ReactNode; tone?: string; onPress?: () => void }) {
+export function StatTile({ label: l, value, tone = colors.brand, icon, onPress }: { label: string; value: ReactNode; tone?: string; icon?: IconName; onPress?: () => void }) {
   return (
-    <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => [styles.tile, pressed && { opacity: 0.8 }]}>
-      <Text style={{ fontSize: 24, fontWeight: '700', color: tone }}>{value}</Text>
-      <Text style={{ fontSize: 13, color: colors.muted, fontWeight: '500' }}>{l}</Text>
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      accessibilityRole={onPress ? 'button' : undefined}
+      style={({ pressed }) => [styles.tile, { backgroundColor: tone + '12', borderColor: tone + '26' }, pressed && { opacity: 0.8 }]}
+    >
+      {icon && <Ionicons name={icon} size={18} color={tone} style={{ marginBottom: 6 }} />}
+      <Text style={{ fontSize: 24, fontWeight: '800', color: tone }}>{value}</Text>
+      <Text style={{ fontSize: 12, color: colors.muted, fontWeight: '600' }} numberOfLines={1}>
+        {l}
+      </Text>
     </Pressable>
   );
 }
 
+/** Navigation row: outlined icon in a tinted square, title, optional detail, chevron. */
+export function ListRow({ icon, title, detail, right, onPress, tone = colors.brand, first }: { icon: IconName; title: string; detail?: string; right?: ReactNode; onPress?: () => void; tone?: string; first?: boolean }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 13, borderTopWidth: first ? 0 : 1, borderTopColor: colors.border, backgroundColor: pressed ? colors.bg : 'transparent' }]}
+    >
+      <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: tone + '14', alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name={icon} size={19} color={tone} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 15, fontWeight: '600', color: colors.text }}>{title}</Text>
+        {detail ? <Text style={{ fontSize: 12, color: colors.muted }} numberOfLines={1}>{detail}</Text> : null}
+      </View>
+      {right}
+      {onPress && <Ionicons name="chevron-forward" size={18} color={colors.faint} />}
+    </Pressable>
+  );
+}
+
+/** − value + control for quantities (parts used on a visit). */
+export function Stepper({ value, onChange, step = 1, min = step, max = 100000, decimals = 0 }: { value: string; onChange: (v: string) => void; step?: number; min?: number; max?: number; decimals?: number }) {
+  const n = Number(value) || 0;
+  const set = (v: number) => onChange(String(+Math.min(max, Math.max(min, v)).toFixed(Math.max(decimals, 3)).replace(/\.?0+$/, '')));
+  const btn = (icon: IconName, label: string, delta: number, disabled: boolean) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      disabled={disabled}
+      onPress={() => set(n + delta)}
+      hitSlop={6}
+      style={({ pressed }) => ({ width: 46, height: 46, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.brandSoft : '#fff', alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.4 : 1 })}
+    >
+      <Ionicons name={icon} size={22} color={colors.brand} />
+    </Pressable>
+  );
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      {btn('remove', 'Less', -step, n - step < min)}
+      <TextInput
+        value={value}
+        onChangeText={(v) => onChange(v.replace(decimals ? /[^\d.]/g : /\D/g, ''))}
+        keyboardType={decimals ? 'decimal-pad' : 'number-pad'}
+        selectTextOnFocus
+        style={[styles.input, { flex: 1, textAlign: 'center', fontFamily: FONT.semibold, fontSize: 18 }]}
+        accessibilityLabel="Quantity"
+      />
+      {btn('add', 'More', step, n + step > max)}
+    </View>
+  );
+}
+
 export const styles = StyleSheet.create({
-  card: { backgroundColor: colors.card, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
+  card: { backgroundColor: colors.card, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, ...shadow },
   cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingBottom: 10 },
   cardTitle: { fontSize: 15, fontWeight: '700', color: colors.text },
   button: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: radius.sm + 2, borderWidth: 1 },
-  label: { fontSize: 14, fontWeight: '600', color: '#334155' },
+  title: { fontSize: 20, fontWeight: '700', color: colors.text },
+  label: { fontSize: 13, fontWeight: '600', color: '#334155' },
   error: { fontSize: 12, color: colors.red },
   hint: { fontSize: 12, color: colors.muted },
-  input: { height: 46, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: radius.sm + 2, paddingHorizontal: 12, fontSize: 16, color: colors.text, backgroundColor: '#fff' },
+  input: { height: 48, borderWidth: 1, borderColor: '#D5DBE5', borderRadius: radius.sm + 2, paddingHorizontal: 14, fontSize: 16, color: colors.text, backgroundColor: '#fff', fontFamily: FONT.regular },
   segmented: { flexDirection: 'row', gap: 6 },
   segment: { flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm + 2, paddingVertical: 10, paddingHorizontal: 6, backgroundColor: '#fff', marginBottom: 6 },
   segmentOn: { borderColor: colors.brand, backgroundColor: colors.brandSoft },
@@ -236,9 +298,9 @@ export const styles = StyleSheet.create({
   badge: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
   row: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 4 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.4)' },
-  sheet: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%' },
+  sheet: { backgroundColor: '#fff', borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: '92%' },
   sheetHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
   sheetTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
   sheetFoot: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border },
-  tile: { flex: 1, backgroundColor: '#fff', borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 14, gap: 2 },
+  tile: { flex: 1, borderRadius: radius.md, borderWidth: 1, padding: 14, gap: 1 },
 });

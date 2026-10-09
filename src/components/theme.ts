@@ -1,19 +1,23 @@
 /** Servon brand palette (same blues as the web app). */
 export const colors = {
-  brand: '#1D40D8',
-  brandDark: '#1E36AF',
-  brandSoft: '#EEF4FF',
+  // Brand kit: Deep Navy #0B2545, Electric Blue #2563EB, Teal Green #10B981, Neutral Gray #E5E7EB.
+  navy: '#0B2545',
+  brand: '#2563EB',
+  brandDark: '#1D4ED8',
+  brandSoft: '#EFF4FF',
+  accent: '#10B981',
+  accentSoft: '#E7F8F1',
   text: '#0F172A',
   muted: '#64748B',
   faint: '#94A3B8',
-  border: '#E2E8F0',
-  bg: '#F8FAFC',
+  border: '#E5E7EB',
+  bg: '#F5F7FB',
   card: '#FFFFFF',
   green: '#047857',
   greenSoft: '#ECFDF5',
   amber: '#B45309',
   amberSoft: '#FFFBEB',
-  red: '#B91C1C',
+  red: '#DC2626',
   redSoft: '#FEF2F2',
   violet: '#6D28D9',
   violetSoft: '#F5F3FF',
@@ -21,7 +25,16 @@ export const colors = {
   skySoft: '#F0F9FF',
 };
 
-export const radius = { sm: 8, md: 12, lg: 16 };
+/** Soft card elevation used across the app. */
+export const shadow = {
+  shadowColor: '#0B2545',
+  shadowOpacity: 0.06,
+  shadowRadius: 10,
+  shadowOffset: { width: 0, height: 3 },
+  elevation: 2,
+} as const;
+
+export const radius = { sm: 10, md: 14, lg: 18 };
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };
 
 export const statusTone: Record<string, { fg: string; bg: string }> = {

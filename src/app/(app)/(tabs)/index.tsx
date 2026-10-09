@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { router } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Envelope } from '@/lib/api';
@@ -8,7 +9,7 @@ import { date, dateTime, money, time } from '@/lib/format';
 import { getPosition } from '@/lib/location';
 import type { Job, Visit } from '@/lib/types';
 import { toast } from '@/components/toast';
-import { Badge, Button, Card, ErrorView, Icon, Loading, Muted, Screen, StatTile } from '@/components/ui';
+import { Badge, Button, Card, ErrorView, Icon, ListRow, Loading, Muted, Screen, StatTile } from '@/components/ui';
 import { colors } from '@/components/theme';
 
 interface TechDashboard {
@@ -54,51 +55,54 @@ export default function Home() {
   if (q.isLoading) return <Loading />;
   if (q.error || !d) return <ErrorView error={q.error} onRetry={q.refetch} />;
 
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning,' : hour < 17 ? 'Good afternoon,' : 'Good evening,';
+  const onDuty = d.punch_status === 'in';
+
   return (
     <Screen refreshing={q.isRefetching} onRefresh={() => { q.refetch(); assets.refetch(); }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <View style={{ flex: 1 }}>
-          <Muted>Hello,</Muted>
-          <Text style={{ fontSize: 22, fontWeight: '700', color: colors.text }} numberOfLines={1}>
-            {user?.name}
-          </Text>
-          <Muted>{d.punch_status === 'in' ? `On duty since ${time(d.punched_at)}` : 'You are off duty'}</Muted>
-        </View>
-        <Button title={d.punch_status === 'in' ? 'Punch out' : 'Punch in'} icon={d.punch_status === 'in' ? 'log-out-outline' : 'log-in-outline'} variant={d.punch_status === 'in' ? 'secondary' : 'success'} loading={punching} onPress={punch} />
+      <View style={{ gap: 2, marginTop: 2 }}>
+        <Muted style={{ fontSize: 14 }}>{greeting}</Muted>
+        <Text style={{ fontSize: 24, fontWeight: '800', color: colors.navy }} numberOfLines={1}>
+          {user?.name}
+        </Text>
       </View>
 
+      <Card>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: onDuty ? colors.accent : colors.faint }} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontWeight: '700', color: colors.text }}>{onDuty ? 'On duty' : 'Off duty'}</Text>
+            <Muted>{onDuty ? `Since ${time(d.punched_at)}` : 'Punch in to start your day'}</Muted>
+          </View>
+          <Button title={onDuty ? 'Punch out' : 'Punch in'} size="sm" icon={onDuty ? 'log-out-outline' : 'finger-print-outline'} variant={onDuty ? 'secondary' : 'success'} loading={punching} onPress={punch} />
+        </View>
+      </Card>
+
       {d.active_visit && (
-        <Pressable onPress={() => router.push({ pathname: '/visit/[id]', params: { id: d.active_visit!.id, job: d.active_visit!.job_id } })} style={{ backgroundColor: colors.violet, borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <Icon name="play-circle" size={34} color="#fff" />
+        <Pressable onPress={() => router.push({ pathname: '/visit/[id]', params: { id: d.active_visit!.id, job: d.active_visit!.job_id } })} style={({ pressed }) => ({ backgroundColor: colors.navy, opacity: pressed ? 0.9 : 1, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 })}>
+          <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="construct" size={22} color="#fff" />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={{ color: '#fff', fontWeight: '700' }}>Service in progress · {d.active_visit.job.crm_call_id}</Text>
-            <Text style={{ color: '#EDE9FE', fontSize: 13 }}>Started {dateTime(d.active_visit.start_time)} — tap to continue</Text>
+            <Text style={{ color: '#B6C4D9', fontSize: 13 }}>Started {dateTime(d.active_visit.start_time)} · tap to continue</Text>
           </View>
           <Icon name="chevron-forward" color="#fff" />
         </Pressable>
       )}
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatTile label="Open" value={d.counts.open} tone={colors.sky} onPress={() => router.push({ pathname: '/jobs', params: { status: 'open' } })} />
-        <StatTile label="In progress" value={d.counts.in_progress} tone={colors.violet} onPress={() => router.push({ pathname: '/jobs', params: { status: 'in_progress' } })} />
-      </View>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatTile label="Pending" value={d.counts.pending} tone={colors.amber} onPress={() => router.push({ pathname: '/jobs', params: { status: 'pending' } })} />
-        <StatTile label="Completed" value={d.counts.completed} tone={colors.green} onPress={() => router.push({ pathname: '/jobs', params: { status: 'completed' } })} />
+        <StatTile label="Open" icon="briefcase-outline" value={d.counts.open} tone={colors.brand} onPress={() => router.push({ pathname: '/jobs', params: { status: 'open' } })} />
+        <StatTile label="In progress" icon="construct-outline" value={d.counts.in_progress} tone={colors.accent} onPress={() => router.push({ pathname: '/jobs', params: { status: 'in_progress' } })} />
+        <StatTile label="Pending" icon="time-outline" value={d.counts.pending} tone={colors.red} onPress={() => router.push({ pathname: '/jobs', params: { status: 'pending' } })} />
       </View>
 
-      <Card>
-        <View style={{ flexDirection: 'row' }}>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Muted>Collected today</Muted>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>{money(d.collected_today)}</Text>
-          </View>
-          <View style={{ width: 1, backgroundColor: colors.border }} />
-          <Pressable style={{ flex: 1, alignItems: 'center' }} onPress={() => router.push('/cash')}>
-            <Muted>Cash in hand</Muted>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: d.cash_in_hand > 0 ? colors.amber : colors.text }}>{money(d.cash_in_hand)}</Text>
-          </Pressable>
-        </View>
+      <Card padded={false}>
+        <ListRow first icon="clipboard-outline" title="My jobs" detail={`${d.counts.completed} completed`} onPress={() => router.push('/jobs')} />
+        <ListRow icon="wallet-outline" title="Cash & expenses" detail={`Cash in hand ${money(d.cash_in_hand)} · collected today ${money(d.collected_today)}`} tone={colors.accent} onPress={() => router.push('/cash')} />
+        <ListRow icon="receipt-outline" title="Add an expense" detail="Fuel, parking, a part bought locally…" tone={colors.amber} onPress={() => router.push('/expenses?new=1')} />
+        <ListRow icon="cube-outline" title="Parts & stock" detail="Check stock at your branch" tone={colors.violet} onPress={() => router.push('/parts')} />
       </Card>
 
       <Card title="Today & overdue" padded={false}>

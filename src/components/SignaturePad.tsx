@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, Modal, PanResponder, Pressable, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Keyboard, Modal, PanResponder, Pressable, View, type LayoutChangeEvent } from 'react-native';
+import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { Button, Field, Icon, Input, Muted } from './ui';

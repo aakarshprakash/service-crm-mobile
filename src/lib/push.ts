@@ -65,6 +65,7 @@ export function routeForNotification(data: Record<string, unknown> | undefined |
   if (!data) return null;
   if (data.test) return null;
   if (data.job_id) return `/job/${data.job_id}`;
+  if (data.expense_claim_id) return '/expenses';
   if (data.leave_request_id) return '/me';
   if (data.asset_id) return '/';
   return '/notifications';

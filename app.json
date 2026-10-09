@@ -2,7 +2,7 @@
   "expo": {
     "name": "Servon Technician",
     "slug": "servon-technician",
-    "version": "2.1.1",
+    "version": "2.1.2",
     "scheme": "servon",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "com.servon.technician",
-      "versionCode": 211,
+      "versionCode": 212,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -25,10 +25,10 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "CAMERA",
+        "RECORD_AUDIO",
         "POST_NOTIFICATIONS"
       ],
       "blockedPermissions": [
-        "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_BACKGROUND_LOCATION"
       ],
       "softwareKeyboardLayoutMode": "resize",
@@ -55,8 +55,7 @@
         "expo-image-picker",
         {
           "cameraPermission": "Servon uses the camera to photograph the unit, serial number, parts and bills for the job.",
-          "photosPermission": "Servon lets you attach existing photos of the unit, parts or bills to a job.",
-          "microphonePermission": false
+          "photosPermission": "Servon lets you attach existing photos of the unit, parts or bills to a job."
         }
       ],
       [
@@ -68,6 +67,18 @@
         }
       ],
       "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Servon uses the camera to photograph the job and scan serial-number barcodes."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Servon records voice notes about the job when you tap Record."
+        }
+      ],
       [
         "expo-build-properties",
         {

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Linking, Pressable, Share, Text, View } from 'react-native';
+import { Linking, Pressable, Share, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { useLookups } from '@/lib/hooks';
 import { money } from '@/lib/format';
 import { pickUpiAccount, upiLink } from '@/lib/upi';

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { ApiError } from '@/lib/api';
@@ -9,20 +10,19 @@ import { colors } from '@/components/theme';
 
 /** Sign in with email or mobile number + password (Sanctum token for the app). */
 export default function Login() {
-  const { login, server, changeServer } = useAuth();
+  const { login } = useAuth();
   const [form, setForm] = useState({ login: '', password: '', company: '' });
   const [showCompany, setShowCompany] = useState(false);
-  const [editingServer, setEditingServer] = useState(false);
-  const [serverValue, setServerValue] = useState(server);
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
   const [secure, setSecure] = useState(true);
+  // The API reports bad credentials on "email" (web form name) or "login".
+  const loginError = error?.field('login') ?? error?.field('email');
 
   const submit = async () => {
     setBusy(true);
     setError(null);
     try {
-      if (editingServer && serverValue !== server) await changeServer(serverValue);
       await login(form.login, form.password, form.company);
     } catch (e) {
       const err = e instanceof ApiError ? e : new ApiError(0, (e as Error).message);
@@ -38,13 +38,13 @@ export default function Login() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24, gap: 20 }} keyboardShouldPersistTaps="handled">
           <View style={{ alignItems: 'center', gap: 10 }}>
-            <Image source={require('../../assets/splash-icon.png')} style={{ width: 88, height: 88 }} accessibilityLabel="Servon" />
-            <Text style={{ fontSize: 26, fontWeight: '800', color: colors.text }}>Servon</Text>
+            <Image source={require('../../assets/logo-mark.png')} style={{ width: 64, height: 64 }} resizeMode="contain" accessibilityLabel="Servon" />
+            <Text style={{ fontSize: 28, fontWeight: '800', color: colors.navy, letterSpacing: 1 }}>SERVON</Text>
             <Muted>Technician app · sign in to see your jobs</Muted>
           </View>
 
           <View style={{ gap: 14, backgroundColor: '#fff', borderRadius: 16, padding: 18, borderWidth: 1, borderColor: colors.border }}>
-            <Field label="Email or mobile number" error={error?.field('login')}>
+            <Field label="Email or mobile number" error={loginError}>
               <Input value={form.login} onChangeText={(v) => setForm({ ...form, login: v })} autoCapitalize="none" autoComplete="username" keyboardType="email-address" textContentType="username" placeholder="ravi@company.com or 98765 43210" />
             </Field>
             <Field label="Password" error={error?.field('password')}>
@@ -60,22 +60,12 @@ export default function Login() {
                 <Input value={form.company} onChangeText={(v) => setForm({ ...form, company: v })} autoCapitalize="none" />
               </Field>
             )}
-            {error && !Object.keys(error.errors).length && <Text style={{ color: colors.red }}>{error.message}</Text>}
+            {error && !loginError && !error.field('password') && !error.field('company') && <Text style={{ color: colors.red }}>{error.message}</Text>}
             <Button title="Sign in" size="lg" loading={busy} disabled={!form.login || !form.password} onPress={submit} />
           </View>
 
-          <View style={{ alignItems: 'center', gap: 8 }}>
-            {editingServer ? (
-              <View style={{ alignSelf: 'stretch', gap: 6 }}>
-                <Field label="Server" hint="The address your office gave you, e.g. https://api.yourcompany.com">
-                  <Input value={serverValue} onChangeText={setServerValue} autoCapitalize="none" keyboardType="url" />
-                </Field>
-              </View>
-            ) : (
-              <Pressable onPress={() => setEditingServer(true)} hitSlop={8}>
-                <Muted>Server: {server.replace(/^https?:\/\//, '')} · Change</Muted>
-              </Pressable>
-            )}
+          <View style={{ alignItems: 'center', gap: 4 }}>
+            <Muted style={{ fontSize: 12 }}>Service Business, Simplified.</Muted>
             <Muted style={{ fontSize: 11 }}>v{Constants.expoConfig?.version}</Muted>
           </View>
         </ScrollView>

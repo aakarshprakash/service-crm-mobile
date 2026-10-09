@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { api, openPdf, type Envelope } from '@/lib/api';
@@ -21,7 +22,7 @@ function shiftMonth(month: string, n: number) {
 
 /** Self service: attendance calendar, leave, payslips and account. */
 export default function Me() {
-  const { user, logout, server } = useAuth();
+  const { user, logout } = useAuth();
   const uploads = useUploads();
   const confirmLogout = () =>
     Alert.alert(
@@ -57,7 +58,6 @@ export default function Me() {
       <Payslips />
       <PushCard />
       <Card>
-        <Muted>Server: {server.replace(/^https?:\/\//, '')}</Muted>
         <Muted>App version {Constants.expoConfig?.version}</Muted>
         <Button
           title="Sign out"

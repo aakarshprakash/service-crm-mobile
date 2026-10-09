@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Linking, Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, type Envelope } from '@/lib/api';
@@ -42,6 +43,15 @@ export default function JobDetail() {
           <Text style={{ fontSize: 17, fontWeight: '700', color: colors.text }}>{c?.name}</Text>
           <Muted>{address || 'No address'}</Muted>
           {c?.crm_id && <Muted style={{ fontSize: 12 }}>CRM ID {c.crm_id}</Muted>}
+          {c?.lat != null && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, alignSelf: 'flex-start', backgroundColor: c.location_source === 'customer' ? colors.accentSoft : colors.brandSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
+              <Icon name="location" size={14} color={c.location_source === 'customer' ? colors.green : colors.brand} />
+              <Text style={{ fontSize: 12, fontWeight: '600', color: c.location_source === 'customer' ? colors.green : colors.brand }}>
+                {c.location_source === 'customer' ? 'Customer shared exact location' : c.location_source === 'technician' ? 'Location saved on site' : 'Exact location available'}
+                {c.location_updated_at ? ` · ${dateTime(c.location_updated_at)}` : ''}
+              </Text>
+            </View>
+          )}
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
             <Action icon="call" label="Call" color={colors.green} onPress={() => Linking.openURL(`tel:${c?.phone}`)} />
             <Action icon="logo-whatsapp" label="WhatsApp" color="#15803D" onPress={() => Linking.openURL(`https://wa.me/${phone.length === 10 ? '91' + phone : phone}`)} />

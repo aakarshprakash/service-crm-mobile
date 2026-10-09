@@ -17,14 +17,21 @@ import { ApiError, apiUrl, authHeaders, hasToken } from './api';
 
 export type UploadStatus = 'queued' | 'uploading' | 'failed';
 
+export type UploadKind = 'image' | 'signature' | 'voice' | 'receipt';
+
 export interface UploadItem {
   id: string;
+  /** The visit the file belongs to (0 for expense receipts). */
   visitId: number;
-  kind: 'image' | 'signature';
-  /** Photo type (bill, serial…) or "signature". */
+  kind: UploadKind;
+  /** Photo type (bill, serial…), "signature", "voice" or "receipt". */
   type: string;
   uri: string;
   signerName?: string;
+  /** Voice note length in seconds. */
+  duration?: number;
+  /** Expense claim a receipt photo belongs to. */
+  claimId?: number;
   status: UploadStatus;
   progress: number;
   attempts: number;
@@ -42,7 +49,7 @@ let loaded = false;
 let running = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<() => void>();
-const uploadedListeners = new Set<(visitId: number) => void>();
+const uploadedListeners = new Set<(visitId: number, item: UploadItem) => void>();
 
 function ensureDir() {
   if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
@@ -129,8 +136,8 @@ export function getUploads(): UploadItem[] {
   return items;
 }
 
-/** Called after each successful upload (used to refresh the visit). */
-export function onUploaded(listener: (visitId: number) => void) {
+/** Called after each successful upload (used to refresh the visit / expense list). */
+export function onUploaded(listener: (visitId: number, item: UploadItem) => void) {
   uploadedListeners.add(listener);
   return () => {
     uploadedListeners.delete(listener);
@@ -153,6 +160,39 @@ export async function enqueuePhoto(visitId: number, type: string, sourceUri: str
     await source.copy(target);
   }
   items = [...items, { id: newId(), visitId, kind: 'image', type, uri: target.uri, status: 'queued', progress: 0, attempts: 0, createdAt: Date.now() }];
+  save();
+  emit();
+  kick();
+}
+
+/** Voice note recorded on the visit (m4a from the recorder's cache, moved into app storage). */
+export async function enqueueVoice(visitId: number, sourceUri: string, durationSeconds: number): Promise<void> {
+  ensureDir();
+  const ext = sourceUri.split('.').pop()?.toLowerCase() === '3gp' ? '3gp' : 'm4a';
+  const target = new File(dir, `voice-${visitId}-${Date.now()}.${ext}`);
+  const source = new File(sourceUri);
+  try {
+    await source.move(target);
+  } catch {
+    await source.copy(target);
+  }
+  items = [...items, { id: newId(), visitId, kind: 'voice', type: 'voice', uri: target.uri, duration: Math.round(durationSeconds), status: 'queued', progress: 0, attempts: 0, createdAt: Date.now() }];
+  save();
+  emit();
+  kick();
+}
+
+/** Receipt photo for an expense claim (already resized by preparePhoto). */
+export async function enqueueReceipt(claimId: number, sourceUri: string): Promise<void> {
+  ensureDir();
+  const target = new File(dir, `receipt-${claimId}-${Date.now()}.jpg`);
+  const source = new File(sourceUri);
+  try {
+    await source.move(target);
+  } catch {
+    await source.copy(target);
+  }
+  items = [...items, { id: newId(), visitId: 0, claimId, kind: 'receipt', type: 'receipt', uri: target.uri, status: 'queued', progress: 0, attempts: 0, createdAt: Date.now() }];
   save();
   emit();
   kick();
@@ -199,7 +239,7 @@ export function waitForVisit(visitId: number, timeoutMs = 90_000): Promise<void>
       const failed = mine.find((i) => i.status === 'failed');
       if (failed) {
         finish();
-        reject(new ApiError(422, `A ${failed.kind === 'signature' ? 'signature' : 'photo'} could not be uploaded: ${failed.error ?? 'rejected by the server'}. Retry or remove it on the Photos tab.`));
+        reject(new ApiError(422, `A ${failed.kind === 'signature' ? 'signature' : failed.kind === 'voice' ? 'voice note' : 'photo'} could not be uploaded: ${failed.error ?? 'rejected by the server'}. Retry or remove it on the Photos tab.`));
       } else if (!mine.length) {
         finish();
         resolve();
@@ -322,13 +362,18 @@ async function uploadOne(item: UploadItem) {
   };
 
   try {
-    const signature = item.kind === 'signature';
-    const result = await file.upload(apiUrl(`/visits/${item.visitId}/${signature ? 'signature' : 'images'}`), {
+    const target: { path: string; field: string; mime: string; params: Record<string, string> } = {
+      image: { path: `/visits/${item.visitId}/images`, field: 'image', mime: 'image/jpeg', params: { type: item.type } },
+      signature: { path: `/visits/${item.visitId}/signature`, field: 'signature', mime: 'image/png', params: { signer_name: item.signerName ?? '' } },
+      voice: { path: `/visits/${item.visitId}/voice-notes`, field: 'audio', mime: item.uri.endsWith('.3gp') ? 'audio/3gpp' : 'audio/mp4', params: { duration: String(item.duration ?? 0) } },
+      receipt: { path: `/my/expenses/${item.claimId}/receipt`, field: 'receipt', mime: 'image/jpeg', params: {} as Record<string, string> },
+    }[item.kind];
+    const result = await file.upload(apiUrl(target.path), {
       httpMethod: 'POST',
       uploadType: UploadType.MULTIPART,
-      fieldName: signature ? 'signature' : 'image',
-      mimeType: signature ? 'image/png' : 'image/jpeg',
-      parameters: signature ? { signer_name: item.signerName ?? '' } : { type: item.type },
+      fieldName: target.field,
+      mimeType: target.mime,
+      parameters: target.params,
       headers: authHeaders(),
       signal: controller.signal,
       onProgress: ({ bytesSent, totalBytes }) => {
@@ -339,7 +384,7 @@ async function uploadOne(item: UploadItem) {
 
     if (result.status >= 200 && result.status < 300) {
       drop(item.id);
-      uploadedListeners.forEach((l) => l(item.visitId));
+      uploadedListeners.forEach((l) => l(item.visitId, item));
     } else if (result.status === 401) {
       // Token expired: keep the file and try again after the technician signs in.
       patch(item.id, { status: 'queued', progress: 0, nextAt: Date.now() + 60_000 });

@@ -43,6 +43,8 @@ export interface Customer {
   pincode: string | null;
   lat: number | null;
   lng: number | null;
+  location_updated_at?: string | null;
+  location_source?: 'customer' | 'office' | 'technician' | null;
 }
 
 export interface CustomerProduct {
@@ -89,6 +91,31 @@ export interface Visit {
   technician?: Named;
   inventory_usage?: Usage[];
   images?: JobImage[];
+  voice_notes?: VoiceNote[];
+}
+
+export interface VoiceNote {
+  id: number;
+  job_visit_id: number | null;
+  duration_seconds: number;
+  url: string;
+  created_at: string;
+}
+
+export interface ExpenseClaim {
+  id: number;
+  job_id: number | null;
+  expense_category_id: number;
+  claim_date: string;
+  amount: number;
+  paid_from: 'cash_in_hand' | 'own_money';
+  description: string | null;
+  receipt_url: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  decision_note: string | null;
+  cash_close_id: number | null;
+  category?: Named | null;
+  job?: { id: number; crm_call_id: string } | null;
 }
 
 export interface Payment {
@@ -154,6 +181,7 @@ export interface Lookups {
   complaint_types: Named[];
   action_taken_options: Named[];
   upi_accounts?: UpiAccount[];
+  expense_categories?: Named[];
   leave_types?: { id: number; name: string; code: string | null; annual_quota: number; is_paid: boolean }[];
 }
 
@@ -165,8 +193,10 @@ export interface CashSummary {
   cheque: number;
   digital: number;
   credit: number;
+  expenses?: number;
   expected_in_hand: number;
   pending_dates: string[];
+  expense_claims?: { id: number; claim_date: string; amount: number; status: string; category: string | null; call_id: string | null; description: string | null }[];
   payments: { id: number; receipt_number: string | null; method: string; amount: number; paid_at: string; call_id: string | null; customer: string | null }[];
 }
 
