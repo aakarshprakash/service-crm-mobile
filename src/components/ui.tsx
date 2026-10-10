@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import {
-  ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle,
+  ActivityIndicator, KeyboardAvoidingView, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { FONT, Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,8 +18,11 @@ export function Icon({ name, size = 20, color = colors.text }: { name: IconName;
 
 /** Scrollable screen body with pull-to-refresh. */
 export function Screen({ children, refreshing, onRefresh, padded = true, style }: { children: ReactNode; refreshing?: boolean; onRefresh?: () => void; padded?: boolean; style?: StyleProp<ViewStyle> }) {
+  const insets = useSafeAreaInsets();
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    // Android draws edge to edge, so the window no longer shrinks for the keyboard: pad on both
+    // platforms (offset = status bar + header, which sit above this view) so fields stay visible.
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior="padding" keyboardVerticalOffset={insets.top + 56}>
       <ScrollView
         contentContainerStyle={[padded && { padding: 16, paddingBottom: 32 }, { gap: 12 }, style]}
         keyboardShouldPersistTaps="handled"
@@ -191,8 +194,9 @@ export function ErrorView({ error, onRetry }: { error: unknown; onRetry?: () => 
 export function Sheet({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode }) {
   const insets = useSafeAreaInsets();
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    // Full-screen modal window, so the keyboard position and this view share coordinates.
+    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
         <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}>
           <View style={styles.sheetHead}>
