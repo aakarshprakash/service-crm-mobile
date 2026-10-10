@@ -22,7 +22,8 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 export function VoiceNotes({ visit }: { visit: Visit }) {
   const qc = useQueryClient();
   const recorder = useAudioRecorder(VOICE);
-  const rec = useAudioRecorderState(recorder, 250);
+  // Once a second is enough for the m:ss clock (and keeps the screen from redrawing constantly).
+  const rec = useAudioRecorderState(recorder, 1000);
   const player = useAudioPlayer(null);
   const status = useAudioPlayerStatus(player);
   const [playingId, setPlayingId] = useState<string | null>(null);

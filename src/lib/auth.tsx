@@ -5,8 +5,9 @@ import { File, Paths } from 'expo-file-system';
 import { useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, loadSession, setServer, setToken, setUnauthenticatedHandler, getServer, type Envelope } from './api';
 import { configureFormatting } from './format';
-import { getPushToken, registerForPush } from './push';
+import { getPushToken, registerForPush, resetPushRegistration } from './push';
 import { resumeUploads } from './uploads';
+import { queryPersister } from './queryCache';
 import type { User } from './types';
 
 interface AuthState {
@@ -63,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       apply(null);
       cacheProfile(null);
       qc.clear();
+      void queryPersister.removeClient(); // never show this user's saved screens to the next one
     });
     (async () => {
       const session = await loadSession();
@@ -70,6 +72,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session.token) {
         // Photos queued before the app closed carry on, even if /auth/me fails offline.
         resumeUploads();
+        // Open straight away with the saved profile; the server check runs in the background.
+        // (Waiting for /auth/me first added a full round trip to every app start.)
+        const saved = cachedProfile();
+        if (saved) {
+          apply(saved);
+          setLoading(false);
+          refresh()
+            .then(registerForPush)
+            .catch(() => {
+              // 401 has already signed the technician out; offline: keep the saved profile, retry when back.
+              const sub = Network.addNetworkStateListener((s) => {
+                if (!s.isConnected) return;
+                sub.remove();
+                refresh().then(registerForPush).catch(() => undefined);
+              });
+            });
+          return;
+        }
         try {
           await refresh();
           registerForPush();
@@ -113,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async logout() {
         try {
           await api.post('/auth/logout', { device_token: getPushToken() });
+          resetPushRegistration();
         } catch {
           /* already signed out on the server */
         }
@@ -120,6 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         apply(null);
         cacheProfile(null);
         qc.clear();
+        void queryPersister.removeClient();
       },
       async changeServer(url) {
         await setServer(url);

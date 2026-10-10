@@ -46,7 +46,7 @@ export async function loadSession(): Promise<{ token: string | null; server: str
   token = await SecureStore.getItemAsync(TOKEN_KEY);
   // One Servon API: the address is built into the app. Forget any address an older version saved.
   server = DEFAULT_SERVER;
-  await SecureStore.deleteItemAsync(SERVER_KEY).catch(() => undefined);
+  void SecureStore.deleteItemAsync(SERVER_KEY).catch(() => undefined); // don't hold up start-up
   return { token, server };
 }
 
@@ -98,7 +98,7 @@ export function hasToken(): boolean {
 }
 
 /** A request that hasn't answered in this long is treated as a dropped connection. */
-const TIMEOUT_MS = 30_000;
+const TIMEOUT_MS = 15_000;
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const isForm = body instanceof FormData;

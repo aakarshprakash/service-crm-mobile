@@ -4,15 +4,16 @@ import { Text } from '@/components/Text';
 import { Stack, router, type ErrorBoundaryProps } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { QueryClient, QueryClientProvider, focusManager, onlineManager } from '@tanstack/react-query';
+import { QueryClient, focusManager, onlineManager } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { PERSIST_MAX_AGE, queryPersister, shouldPersistQuery } from '@/lib/queryCache';
 import * as Network from 'expo-network';
 import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
-import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold } from '@expo-google-fonts/inter';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { api, ApiError, type Envelope } from '@/lib/api';
-import { registerForPush, routeForNotification } from '@/lib/push';
+import { routeForNotification, syncPushToken } from '@/lib/push';
 import { initUploads, onUploaded, takeRememberedCapture } from '@/lib/uploads';
 import { queuePhoto } from '@/lib/photos';
 import { Toaster, toast } from '@/components/toast';
@@ -23,10 +24,12 @@ import { colors } from '@/components/theme';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 15_000,
-      // Retry dropped connections (common in the field), never 4xx answers.
-      retry: (count, error) => count < 3 && (!(error instanceof ApiError) || error.status === 0 || error.status >= 500),
-      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+      staleTime: 30_000,
+      // Kept (and saved on the phone) for a day so screens open instantly with the last data.
+      gcTime: PERSIST_MAX_AGE,
+      // Retry dropped connections (common in the field) twice, never 4xx answers.
+      retry: (count, error) => count < 2 && (!(error instanceof ApiError) || error.status === 0 || error.status >= 500),
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
     },
   },
 });
@@ -65,19 +68,16 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 }
 
 export default function RootLayout() {
-  // Inter is bundled with the app; this resolves almost instantly.
-  const [fontsReady, fontError] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold });
-  if (!fontsReady && !fontError) return <View style={{ flex: 1, backgroundColor: colors.bg }} />;
   return (
     <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider client={queryClient} persistOptions={{ persister: queryPersister, maxAge: PERSIST_MAX_AGE, buster: Constants.expoConfig?.version ?? '', dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery } }}>
         <AuthProvider>
           <StatusBar style="dark" />
           <RootNavigator />
           <StatusPill />
           <Toaster />
         </AuthProvider>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </SafeAreaProvider>
   );
 }
@@ -127,11 +127,17 @@ function useNotificationTaps(signedIn: boolean) {
   }, [signedIn]);
 }
 
-/** FCM can rotate the device token; keep the server's copy current. */
+/**
+ * FCM can rotate the device token; send the new one to the server. Uses the token from
+ * the event itself and skips one the server already has (never re-fetches it: fetching
+ * fires this event again, which looped and flooded the API).
+ */
 function usePushTokenRefresh(signedIn: boolean) {
   useEffect(() => {
     if (!signedIn) return;
-    const sub = Notifications.addPushTokenListener(() => registerForPush());
+    const sub = Notifications.addPushTokenListener((t) => {
+      syncPushToken(String(t.data)).catch(() => undefined);
+    });
     return () => sub.remove();
   }, [signedIn]);
 }

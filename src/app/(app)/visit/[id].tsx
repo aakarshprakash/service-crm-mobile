@@ -28,7 +28,6 @@ export default function VisitScreen() {
   const visit = useQuery({ queryKey: ['visit', id], queryFn: () => api.get<Envelope<Visit>>(`/visits/${id}`).then((r) => r.data) });
   const [tab, setTab] = useState<Tab>('call');
   const [done, setDone] = useState<{ invoice: Invoice | null; payment: Payment | null; status: string } | null>(null);
-  const now = useNow(1000);
   const queuedPhotos = useUploads(Number(id)).filter((u) => u.kind === 'image').length;
 
   if (job.isLoading || visit.isLoading) return <Loading />;
@@ -44,8 +43,6 @@ export default function VisitScreen() {
   }
 
   const v = visit.data;
-  const elapsed = Math.max(0, Math.floor((now - new Date(v.start_time).getTime()) / 1000));
-  const hh = (n: number) => String(n).padStart(2, '0');
 
   return (
     <>
@@ -54,9 +51,7 @@ export default function VisitScreen() {
         <Text style={{ color: '#fff', fontWeight: '600' }}>
           <Icon name="timer-outline" size={16} color="#fff" /> {label(v.service_type)}
         </Text>
-        <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] }}>
-          {hh(Math.floor(elapsed / 3600))}:{hh(Math.floor((elapsed % 3600) / 60))}:{hh(elapsed % 60)}
-        </Text>
+        <VisitTimer start={v.start_time} />
       </View>
       <View style={{ paddingHorizontal: 16, paddingTop: 12, backgroundColor: colors.bg }}>
         <Segmented
@@ -75,6 +70,18 @@ export default function VisitScreen() {
       {tab === 'parts' && <PartsTab visit={v} />}
       {tab === 'complete' && <CompleteTab job={job.data} visit={v} onDone={setDone} />}
     </>
+  );
+}
+
+/** Live visit timer. Only this small piece redraws every second, not the whole visit screen. */
+function VisitTimer({ start }: { start: string }) {
+  const now = useNow(1000);
+  const elapsed = Math.max(0, Math.floor((now - new Date(start).getTime()) / 1000));
+  const hh = (n: number) => String(n).padStart(2, '0');
+  return (
+    <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] }}>
+      {hh(Math.floor(elapsed / 3600))}:{hh(Math.floor((elapsed % 3600) / 60))}:{hh(elapsed % 60)}
+    </Text>
   );
 }
 

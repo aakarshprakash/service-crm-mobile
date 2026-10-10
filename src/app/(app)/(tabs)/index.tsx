@@ -37,7 +37,7 @@ export default function Home() {
     setPunching(true);
     try {
       // Location is required when the company uses a geofence; otherwise it's sent if available.
-      const pos = await getPosition(10000).catch((e: Error) => {
+      const pos = await getPosition(6000).catch((e: Error) => {
         toast.info(e.message);
         return null;
       });

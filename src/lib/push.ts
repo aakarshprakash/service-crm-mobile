@@ -16,6 +16,35 @@ export type PushStatus = 'registered' | 'denied' | 'unavailable' | 'error';
 
 let lastToken: string | null = null;
 let lastStatus: PushStatus | null = null;
+/** The token the server already has, so the same token is never sent twice. */
+let sentToken: string | null = null;
+let inFlight: Promise<PushStatus> | null = null;
+
+const platform = () => (Platform.OS === 'ios' ? 'ios' : 'android');
+
+/**
+ * Sends a token to the server only if it differs from the one already sent.
+ * Called with the token Android hands us; never asks Firebase again, because asking
+ * Firebase fires the token event again (that loop flooded the API with /auth/device).
+ */
+export async function syncPushToken(token: string): Promise<void> {
+  // Android fires the token event while the first registration is still being sent:
+  // claim the token up front so the same one is never posted twice.
+  if (!token || token === sentToken) return;
+  sentToken = token;
+  lastToken = token;
+  try {
+    await api.post('/auth/device', { token, platform: platform() });
+  } catch (e) {
+    sentToken = null; // let a later attempt retry
+    throw e;
+  }
+}
+
+/** Forget the sent token (sign-out), so the next sign-in registers this phone again. */
+export function resetPushRegistration() {
+  sentToken = null;
+}
 
 /** The FCM token this phone registered with the server (sent on sign-out to unregister). */
 export function getPushToken(): string | null {
@@ -32,7 +61,15 @@ export function getPushStatus(): PushStatus | null {
  * Never throws: push is a convenience and the app works without it (simulators,
  * builds without Firebase config, permission denied).
  */
-export async function registerForPush(): Promise<PushStatus> {
+export function registerForPush(): Promise<PushStatus> {
+  // One registration at a time (app start, sign-in and the Me tab can all ask together).
+  inFlight ??= doRegister().finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
+
+async function doRegister(): Promise<PushStatus> {
   if (!Device.isDevice) return (lastStatus = 'unavailable');
   try {
     if (Platform.OS === 'android') {
@@ -50,8 +87,7 @@ export async function registerForPush(): Promise<PushStatus> {
     if (status !== 'granted') status = (await Notifications.requestPermissionsAsync()).status;
     if (status !== 'granted') return (lastStatus = 'denied');
     const token = await Notifications.getDevicePushTokenAsync();
-    lastToken = String(token.data);
-    await api.post('/auth/device', { token: lastToken, platform: Platform.OS === 'ios' ? 'ios' : 'android' });
+    await syncPushToken(String(token.data));
     return (lastStatus = 'registered');
   } catch (e) {
     // getDevicePushTokenAsync fails when the APK was built without google-services.json.

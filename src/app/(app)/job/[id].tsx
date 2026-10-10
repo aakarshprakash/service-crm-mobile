@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, type Envelope } from '@/lib/api';
 import { date, dateTime, label, money } from '@/lib/format';
 import { getPosition, tryPosition } from '@/lib/location';
-import type { Job } from '@/lib/types';
+import type { Job, Visit } from '@/lib/types';
 import { toast } from '@/components/toast';
 import { Badge, Button, Card, ErrorView, Icon, Loading, Muted, Row, Screen, Segmented, Sheet, type IconName } from '@/components/ui';
 import { CollectPayment } from '@/components/CollectPayment';
@@ -168,14 +168,15 @@ function StartService({ job, onClose }: { job: Job; onClose: () => void }) {
       } else {
         pos = await tryPosition();
       }
-      await api.post(`/jobs/${job.id}/visits/start`, { service_type: type, ...(pos ?? {}) });
+      // The response is the new visit: open it straight away, refresh the lists in the background.
+      const res = await api.post<Envelope<Visit>>(`/jobs/${job.id}/visits/start`, { service_type: type, ...(pos ?? {}) });
       toast.success('Service started. Timer is running.');
-      await qc.invalidateQueries({ queryKey: ['tech-job', String(job.id)] });
+      qc.setQueryData(['visit', String(res.data.id)], { images: [], voice_notes: [], inventory_usage: [], ...res.data });
+      qc.invalidateQueries({ queryKey: ['tech-job', String(job.id)] });
       qc.invalidateQueries({ queryKey: ['tech-dashboard'] });
-      const fresh = await api.get<Envelope<Job>>(`/jobs/${job.id}`);
-      const active = fresh.data.visits?.find((v) => v.status === 'in_progress');
+      qc.invalidateQueries({ queryKey: ['tech-jobs'] });
       onClose();
-      if (active) router.push({ pathname: '/visit/[id]', params: { id: active.id, job: job.id } });
+      router.push({ pathname: '/visit/[id]', params: { id: res.data.id, job: job.id } });
     } catch (e) {
       const err = e as ApiError;
       if (err instanceof ApiError && err.field('location')) setLocError(err.field('location')!);
