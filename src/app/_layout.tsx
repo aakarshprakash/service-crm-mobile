@@ -16,6 +16,7 @@ import { api, ApiError, type Envelope } from '@/lib/api';
 import { routeForNotification, syncPushToken } from '@/lib/push';
 import { initUploads, onUploaded, takeRememberedCapture } from '@/lib/uploads';
 import { queuePhoto } from '@/lib/photos';
+import { AppearanceProvider, useAppearance } from '@/lib/appearance';
 import { Toaster, toast } from '@/components/toast';
 import { StatusPill } from '@/components/StatusPill';
 import { Button, Icon, Loading } from '@/components/ui';
@@ -72,14 +73,20 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <PersistQueryClientProvider client={queryClient} persistOptions={{ persister: queryPersister, maxAge: PERSIST_MAX_AGE, buster: Constants.expoConfig?.version ?? '', dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery } }}>
         <AuthProvider>
-          <StatusBar style="dark" />
-          <RootNavigator />
-          <StatusPill />
-          <Toaster />
+          <AppearanceProvider>
+            <ThemedStatusBar />
+            <RootNavigator />
+            <StatusPill />
+            <Toaster />
+          </AppearanceProvider>
         </AuthProvider>
       </PersistQueryClientProvider>
     </SafeAreaProvider>
   );
+}
+
+function ThemedStatusBar() {
+  return <StatusBar style={useAppearance().scheme === 'dark' ? 'light' : 'dark'} />;
 }
 
 function RootNavigator() {
@@ -177,7 +184,7 @@ function UpdateBanner() {
   }, []);
   if (!needed) return null;
   return (
-    <Pressable onPress={() => Linking.openURL('market://details?id=com.servon.technician').catch(() => undefined)} style={{ backgroundColor: colors.amber, paddingTop: 44, paddingBottom: 10, paddingHorizontal: 16 }}>
+    <Pressable onPress={() => Linking.openURL('market://details?id=com.servon.technician').catch(() => undefined)} style={{ backgroundColor: '#B45309', paddingTop: 44, paddingBottom: 10, paddingHorizontal: 16 }}>
       <Text style={{ color: '#fff', fontWeight: '600' }}>A newer version of the Servon app is required. Tap to update.</Text>
     </Pressable>
   );

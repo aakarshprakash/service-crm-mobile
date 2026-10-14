@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as Device from 'expo-device';
 import * as Network from 'expo-network';
 import { File, Paths } from 'expo-file-system';
@@ -9,6 +9,7 @@ import { getPushToken, registerForPush, resetPushRegistration } from './push';
 import { resumeUploads } from './uploads';
 import { queryPersister } from './queryCache';
 import type { User } from './types';
+import { toast } from '@/components/toast';
 
 interface AuthState {
   user: User | null;
@@ -45,6 +46,8 @@ function cachedProfile(): User | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
+  const userRef = useRef<User | null>(null);
+  userRef.current = user;
   const [loading, setLoading] = useState(true);
   const [server, setServerState] = useState(getServer());
 
@@ -61,6 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setUnauthenticatedHandler(() => {
+      // Expired, signed out by the office, or password reset: say why instead of just showing sign-in.
+      if (userRef.current) toast.info('You were signed out. Please sign in again.');
       apply(null);
       cacheProfile(null);
       qc.clear();

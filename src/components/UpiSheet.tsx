@@ -45,7 +45,7 @@ export function UpiSheet({ open, onClose, amount, note, branchId }: { open: bool
                 <Pressable
                   key={a.id}
                   onPress={() => setAccountId(a.id)}
-                  style={{ borderWidth: 1, borderColor: a.id === account.id ? colors.brand : colors.border, backgroundColor: a.id === account.id ? colors.brandSoft : '#fff', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}
+                  style={{ borderWidth: 1, borderColor: a.id === account.id ? colors.brand : colors.border, backgroundColor: a.id === account.id ? colors.brandSoft : colors.card, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}
                 >
                   <Text style={{ color: a.id === account.id ? colors.brand : colors.muted, fontWeight: '600', fontSize: 13 }}>{a.name}</Text>
                 </Pressable>

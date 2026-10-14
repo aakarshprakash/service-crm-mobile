@@ -77,7 +77,7 @@ export function BarcodeScanner({ open, title = 'Scan serial number', onClose, on
         </View>
 
         {result !== null && (
-          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#fff', borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16, paddingBottom: insets.bottom + 16, gap: 12 }}>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.card, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16, paddingBottom: insets.bottom + 16, gap: 12 }}>
             <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text }}>Scanned</Text>
             <Input value={result} onChangeText={setResult} autoCapitalize="characters" style={{ fontSize: 18 }} />
             <View style={{ flexDirection: 'row', gap: 10 }}>

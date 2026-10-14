@@ -5,12 +5,14 @@ import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { api, openPdf, type Envelope } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { useAppearance, type AppearancePref } from '@/lib/appearance';
 import { getPushStatus, registerForPush, type PushStatus } from '@/lib/push';
 import { useUploads } from '@/lib/uploads';
 import { fieldError, useApiMutation, useLookups } from '@/lib/hooks';
-import { date, hours, money, monthName, num, today } from '@/lib/format';
+import { date, hours, money, monthName, num, relative, today } from '@/lib/format';
 import type { AttendanceDay, LeaveBalance, LeaveRequest, Payslip } from '@/lib/types';
 import { toast } from '@/components/toast';
+import { ChangePasswordForm } from '@/components/ChangePassword';
 import { Badge, Button, Card, Field, Icon, Input, Loading, Muted, Screen, Segmented, Sheet } from '@/components/ui';
 import { colors, dayTone } from '@/components/theme';
 
@@ -57,6 +59,8 @@ export default function Me() {
       <Leave />
       <Payslips />
       <PushCard />
+      <SecurityCard />
+      <AppearanceCard />
       <Card>
         <Muted>App version {Constants.expoConfig?.version}</Muted>
         <Button
@@ -68,6 +72,60 @@ export default function Me() {
         />
       </Card>
     </Screen>
+  );
+}
+
+interface MySession { id: number; app: 'web' | 'technician' | 'manager'; device: string; last_used_at: string | null; signed_in_at: string; current: boolean }
+
+/** Password and the phones / browsers this account is signed in on. */
+function SecurityCard() {
+  const [changing, setChanging] = useState(false);
+  const q = useQuery({ queryKey: ['my-sessions'], queryFn: () => api.get<Envelope<MySession[]>>('/auth/sessions').then((r) => r.data) });
+  const others = useApiMutation(() => api.post<Envelope<{ signed_out: number }>>('/auth/sessions/sign-out-others'), { invalidate: [['my-sessions']], success: (r) => (r as { message?: string }).message ?? 'Done' });
+  const list = q.data ?? [];
+  return (
+    <Card title="Security" padded={false}>
+      {list.map((s, i) => (
+        <View key={s.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
+          <Icon name={s.app === 'web' ? 'desktop-outline' : 'phone-portrait-outline'} color={colors.muted} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.text, fontWeight: '600' }} numberOfLines={1}>
+              {s.device}
+              {s.current ? '  ·  this phone' : ''}
+            </Text>
+            <Muted style={{ fontSize: 12 }}>
+              {s.app === 'web' ? 'Web app' : s.app === 'manager' ? 'Manager app' : 'Technician app'} · {s.last_used_at ? `active ${relative(s.last_used_at)}` : `signed in ${relative(s.signed_in_at)}`}
+            </Muted>
+          </View>
+        </View>
+      ))}
+      <View style={{ padding: 16, gap: 8, borderTopWidth: list.length ? 1 : 0, borderTopColor: colors.border }}>
+        {list.length > 1 && <Button title="Sign out other devices" variant="secondary" icon="log-out-outline" size="sm" loading={others.isPending} onPress={() => others.mutate(undefined)} />}
+        <Button title="Change password" variant="secondary" icon="key-outline" size="sm" onPress={() => setChanging(true)} />
+      </View>
+      <Sheet open={changing} onClose={() => setChanging(false)} title="Change password">
+        <ChangePasswordForm onDone={() => { setChanging(false); q.refetch(); }} />
+      </Sheet>
+    </Card>
+  );
+}
+
+/** Light, dark, or the same as the phone. */
+function AppearanceCard() {
+  const { pref, setPref } = useAppearance();
+  return (
+    <Card title="Appearance">
+      <Segmented<AppearancePref>
+        value={pref}
+        onChange={setPref}
+        options={[
+          { value: 'system', label: 'System', icon: 'phone-portrait-outline' },
+          { value: 'light', label: 'Light', icon: 'sunny-outline' },
+          { value: 'dark', label: 'Dark', icon: 'moon-outline' },
+        ]}
+      />
+      <Muted style={{ fontSize: 12 }}>System follows your phone’s dark mode setting. Dark mode is easier on the eyes at night and saves battery.</Muted>
+    </Card>
   );
 }
 
@@ -274,7 +332,7 @@ function ApplyLeave({ onClose }: { onClose: () => void }) {
             <Pressable
               key={t.id}
               onPress={() => setForm({ ...form, leave_type_id: t.id })}
-              style={{ borderWidth: 1, borderColor: form.leave_type_id === t.id ? colors.brand : colors.border, backgroundColor: form.leave_type_id === t.id ? colors.brandSoft : '#fff', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}
+              style={{ borderWidth: 1, borderColor: form.leave_type_id === t.id ? colors.brand : colors.border, backgroundColor: form.leave_type_id === t.id ? colors.brandSoft : colors.card, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}
             >
               <Text style={{ color: form.leave_type_id === t.id ? colors.brand : colors.text, fontWeight: '600' }}>
                 {t.name}
@@ -331,7 +389,7 @@ function Payslips() {
         <Muted style={{ padding: 16 }}>Payslips appear here once payroll for a month is finalized.</Muted>
       ) : (
         q.data.map((p, i) => (
-          <Pressable key={p.id} onPress={() => open(p)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, backgroundColor: pressed ? colors.bg : '#fff' })}>
+          <Pressable key={p.id} onPress={() => open(p)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, backgroundColor: pressed ? colors.bg : colors.card })}>
             <Icon name="document-text-outline" color={colors.brand} />
             <View style={{ flex: 1 }}>
               <Text style={{ fontWeight: '600', color: colors.text }}>{p.run && monthName(p.run.month)}</Text>

@@ -42,7 +42,7 @@ export default function Parts() {
           renderItem={({ item }) => {
             const stock = Number(item.stock_total ?? 0);
             return (
-              <Pressable onPress={() => setOpen(open === item.id ? null : item.id)} style={{ backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 14 }}>
+              <Pressable onPress={() => setOpen(open === item.id ? null : item.id)} style={{ backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 14 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontWeight: '600', color: colors.text }}>{item.name}</Text>

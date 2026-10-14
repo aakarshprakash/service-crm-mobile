@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet } from 'react-native';
 import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors } from './theme';
 
 type Toast = { id: number; message: string; tone: 'success' | 'error' | 'info' };
 let listener: ((t: Toast) => void) | null = null;
@@ -41,7 +40,8 @@ export function Toaster() {
   }, [current, opacity]);
 
   if (!current) return null;
-  const bg = current.tone === 'error' ? colors.red : current.tone === 'success' ? colors.green : colors.text;
+  // Fixed dark fills: readable in both light and dark mode.
+  const bg = current.tone === 'error' ? '#DC2626' : current.tone === 'success' ? '#047857' : '#1E293B';
   return (
     <Animated.View pointerEvents="none" style={[styles.wrap, { bottom: insets.bottom + 72, opacity }]}>
       <Text style={[styles.toast, { backgroundColor: bg }]} accessibilityLiveRegion="polite">

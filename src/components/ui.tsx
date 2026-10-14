@@ -8,7 +8,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNetworkState } from 'expo-network';
 import { ApiError } from '@/lib/api';
 import { label } from '@/lib/format';
-import { colors, radius, shadow, statusTone } from './theme';
+import { colors, onSchemeChange, radius, shadow, statusTone } from './theme';
 
 export type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -54,10 +54,10 @@ export function Button({
   title, onPress, variant = 'primary', icon, loading, disabled, size = 'md', style,
 }: { title: string; onPress?: () => void; variant?: Variant; icon?: IconName; loading?: boolean; disabled?: boolean; size?: 'sm' | 'md' | 'lg'; style?: StyleProp<ViewStyle> }) {
   const v = {
-    primary: { bg: colors.brand, fg: '#fff', border: colors.brand },
-    secondary: { bg: '#fff', fg: colors.text, border: colors.border },
-    success: { bg: colors.green, fg: '#fff', border: colors.green },
-    danger: { bg: colors.red, fg: '#fff', border: colors.red },
+    primary: { bg: colors.brand, fg: colors.onBrand, border: colors.brand },
+    secondary: { bg: colors.card, fg: colors.text, border: colors.border },
+    success: { bg: colors.successBg, fg: colors.onBrand, border: colors.successBg },
+    danger: { bg: colors.dangerBg, fg: colors.onBrand, border: colors.dangerBg },
     ghost: { bg: 'transparent', fg: colors.brand, border: 'transparent' },
   }[variant];
   const h = { sm: 36, md: 46, lg: 54 }[size];
@@ -133,7 +133,7 @@ export function Segmented<T extends string>({ value, onChange, options, columns 
 }
 
 export function Badge({ text, tone }: { text: string; tone?: string }) {
-  const t = statusTone[tone ?? text] ?? { fg: colors.muted, bg: '#F1F5F9' };
+  const t = statusTone[tone ?? text] ?? { fg: colors.muted, bg: colors.chip };
   return (
     <View style={[styles.badge, { backgroundColor: t.bg }]}>
       <Text style={{ color: t.fg, fontSize: 12, fontWeight: '600' }}>{label(text)}</Text>
@@ -264,7 +264,7 @@ export function Stepper({ value, onChange, step = 1, min = step, max = 100000, d
       disabled={disabled}
       onPress={() => set(n + delta)}
       hitSlop={6}
-      style={({ pressed }) => ({ width: 46, height: 46, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.brandSoft : '#fff', alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.4 : 1 })}
+      style={({ pressed }) => ({ width: 46, height: 46, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.brandSoft : colors.card, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.4 : 1 })}
     >
       <Ionicons name={icon} size={22} color={colors.brand} />
     </Pressable>
@@ -285,26 +285,33 @@ export function Stepper({ value, onChange, step = 1, min = step, max = 100000, d
   );
 }
 
-export const styles = StyleSheet.create({
+const makeStyles = () =>
+  StyleSheet.create({
   card: { backgroundColor: colors.card, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, ...shadow },
   cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingBottom: 10 },
   cardTitle: { fontSize: 15, fontWeight: '700', color: colors.text },
   button: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: radius.sm + 2, borderWidth: 1 },
   title: { fontSize: 20, fontWeight: '700', color: colors.text },
-  label: { fontSize: 13, fontWeight: '600', color: '#334155' },
+  label: { fontSize: 13, fontWeight: '600', color: colors.textSoft },
   error: { fontSize: 12, color: colors.red },
   hint: { fontSize: 12, color: colors.muted },
-  input: { height: 48, borderWidth: 1, borderColor: '#D5DBE5', borderRadius: radius.sm + 2, paddingHorizontal: 14, fontSize: 16, color: colors.text, backgroundColor: '#fff', fontFamily: FONT.regular },
+  input: { height: 48, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: radius.sm + 2, paddingHorizontal: 14, fontSize: 16, color: colors.text, backgroundColor: colors.card, fontFamily: FONT.regular },
   segmented: { flexDirection: 'row', gap: 6 },
-  segment: { flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm + 2, paddingVertical: 10, paddingHorizontal: 6, backgroundColor: '#fff', marginBottom: 6 },
+  segment: { flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm + 2, paddingVertical: 10, paddingHorizontal: 6, backgroundColor: colors.card, marginBottom: 6 },
   segmentOn: { borderColor: colors.brand, backgroundColor: colors.brandSoft },
   segmentText: { fontSize: 13, fontWeight: '600', color: colors.muted },
   badge: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
   row: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 4 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.4)' },
-  sheet: { backgroundColor: '#fff', borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: '92%' },
+  sheet: { backgroundColor: colors.card, borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: '92%' },
   sheetHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
   sheetTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
   sheetFoot: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border },
   tile: { flex: 1, borderRadius: radius.md, borderWidth: 1, padding: 14, gap: 1 },
+});
+
+// Rebuilt when light / dark mode changes: the palette is read when the sheet is created.
+export let styles = makeStyles();
+onSchemeChange(() => {
+  styles = makeStyles();
 });

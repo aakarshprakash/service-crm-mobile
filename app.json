@@ -2,11 +2,11 @@
   "expo": {
     "name": "Servon Technician",
     "slug": "servon-technician",
-    "version": "2.1.3",
+    "version": "2.2.0",
     "scheme": "servon",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "backgroundColor": "#F8FAFC",
     "ios": {
       "supportsTablet": true,
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "com.servon.technician",
-      "versionCode": 213,
+      "versionCode": 220,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",

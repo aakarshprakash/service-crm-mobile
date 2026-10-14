@@ -76,6 +76,35 @@ export function today(): string {
   }
 }
 
+/** The company-timezone date (YYYY-MM-DD) of a timestamp, `days` later. */
+export function dayKey(value: string | Date, days = 0): string {
+  const d = new Date(typeof value === 'string' ? value : value.getTime());
+  d.setTime(d.getTime() + days * 86_400_000);
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
+/** "Today · 3:00 pm", "Tomorrow · 10:30 am", "Thu, 16 Oct · 9:00 am" and whether it is already past. */
+export function schedule(value: string | null | undefined): { text: string; when: 'none' | 'past' | 'today' | 'tomorrow' | 'later' } {
+  if (!value) return { text: 'Not scheduled', when: 'none' };
+  const day = dayKey(value);
+  const now = new Date();
+  const t = time(value);
+  if (day === dayKey(now)) return { text: `Today · ${t}`, when: new Date(value) < now ? 'past' : 'today' };
+  if (day === dayKey(now, 1)) return { text: `Tomorrow · ${t}`, when: 'tomorrow' };
+  if (day < dayKey(now)) return { text: `${dateTime(value)}`, when: 'past' };
+  return { text: `${fmt(value, { weekday: 'short', day: '2-digit', month: 'short' })} · ${t}`, when: 'later' };
+}
+
+/** "Logged today", "1 day old", "5 days old". */
+export function callAge(days: number | null | undefined): string {
+  if (days == null) return '';
+  return days <= 0 ? 'Logged today' : days === 1 ? '1 day old' : `${days} days old`;
+}
+
 export function label(value: string | null | undefined): string {
   if (!value) return '–';
   return value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

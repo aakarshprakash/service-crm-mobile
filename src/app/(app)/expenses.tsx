@@ -50,7 +50,7 @@ export default function Expenses() {
           </Card>
           <Card style={{ flex: 1 }}>
             <Muted>This month</Muted>
-            <Text style={{ fontSize: 20, fontWeight: '800', color: colors.navy }}>{money(q.data.meta.month_amount)}</Text>
+            <Text style={{ fontSize: 20, fontWeight: '800', color: colors.heading }}>{money(q.data.meta.month_amount)}</Text>
           </Card>
         </View>
         <Button title="Add an expense" icon="add-circle-outline" size="lg" onPress={() => setAdding(true)} />
@@ -169,7 +169,7 @@ function AddExpense({ onClose }: { onClose: () => void }) {
           {lookups?.expense_categories?.map((c) => {
             const on = c.id === form.expense_category_id;
             return (
-              <Pressable key={c.id} onPress={() => set('expense_category_id', c.id)} style={{ borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brandSoft : '#fff', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}>
+              <Pressable key={c.id} onPress={() => set('expense_category_id', c.id)} style={{ borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brandSoft : colors.card, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}>
                 <Text style={{ color: on ? colors.brand : colors.text, fontWeight: '600' }}>{c.name}</Text>
               </Pressable>
             );
@@ -196,7 +196,7 @@ function AddExpense({ onClose }: { onClose: () => void }) {
         )}
       </Field>
       <Field label="For a job (optional)" error={e('job_id')}>
-        <Pressable onPress={() => setPickJob(true)} style={{ borderWidth: 1, borderColor: '#D5DBE5', borderRadius: 12, minHeight: 48, paddingHorizontal: 14, justifyContent: 'center', backgroundColor: '#fff' }}>
+        <Pressable onPress={() => setPickJob(true)} style={{ borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 12, minHeight: 48, paddingHorizontal: 14, justifyContent: 'center', backgroundColor: '#fff' }}>
           <Text style={{ color: job ? colors.text : colors.faint, fontSize: 16 }}>{job ? `${job.crm_call_id} · ${job.customer?.name ?? ''}` : 'Not linked to a job'}</Text>
         </Pressable>
       </Field>

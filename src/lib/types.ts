@@ -28,6 +28,8 @@ export interface User {
   branch_id: number | null;
   punch_status: 'in' | 'out';
   punched_at: string | null;
+  /** Signed in with a temporary password from the admin: must choose their own first. */
+  must_change_password?: boolean;
   abilities: string[];
   tenant: Tenant | null;
 }
@@ -53,6 +55,7 @@ export interface CustomerProduct {
   outdoor_serial_no: string | null;
   purchase_date: string | null;
   warranty_type: string | null;
+  warranty_expiry?: string | null;
   under_warranty?: boolean;
   product?: { id: number; model_name: string; brand?: Named | null } | null;
   dealer?: Named | null;
@@ -139,16 +142,42 @@ export interface Invoice {
   upi?: { vpa: string; payee_name: string; amount: number; link: string } | null;
 }
 
+/** An earlier finished visit on the same product (or customer), shown on the job. */
+export interface PreviousService {
+  job_id: number;
+  crm_call_id: string | null;
+  date: string;
+  status: string;
+  complaint: string | null;
+  action_taken: string | null;
+  summary: string | null;
+  technician: string | null;
+  total_charge: number;
+}
+
+/** Punch rules for this technician, from the dashboard. */
+export interface PunchRules {
+  geofence: 'off' | 'flag' | 'enforce';
+  branch: { name: string; lat: number | null; lng: number | null; radius: number | null } | null;
+  require_location: boolean;
+  require_punch_in: boolean;
+}
+
 export interface Job {
   id: number;
   crm_call_id: string;
   status: JobStatus;
   priority: Priority;
   call_type: string;
+  service_type: string | null;
   scheduled_at: string | null;
+  created_at: string;
+  /** Whole days since the job was logged. */
+  call_age_days?: number;
   branch_id: number | null;
   complaint_type_id: number | null;
   complaint_details: string | null;
+  previous_services?: PreviousService[];
   customer?: Customer;
   customer_product?: CustomerProduct | null;
   complaint_type?: Named | null;

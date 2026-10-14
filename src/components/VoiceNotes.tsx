@@ -138,7 +138,7 @@ export function VoiceNotes({ visit }: { visit: Visit }) {
         return (
           <Pressable key={r.key} onPress={() => toggle(r.key, r.uri)} onLongPress={r.onLongPress} accessibilityHint="Long press for options" style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 }}>
             <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: active && status.playing ? colors.brand : colors.brandSoft, alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name={active && status.playing ? 'pause' : 'play'} size={18} color={active && status.playing ? '#fff' : colors.brand} />
+              <Icon name={active && status.playing ? 'pause' : 'play'} size={18} color={active && status.playing ? colors.onBrand : colors.brand} />
             </View>
             <View style={{ flex: 1, gap: 6 }}>
               <View style={{ height: 4, borderRadius: 2, backgroundColor: colors.border }}>
@@ -158,12 +158,12 @@ export function VoiceNotes({ visit }: { visit: Visit }) {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: rows.length ? 8 : 0, padding: 12, borderRadius: 14, backgroundColor: colors.redSoft }}>
           <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: colors.red }} />
           <Text style={{ flex: 1, fontWeight: '700', color: colors.red, fontSize: 16 }}>Recording {clock(seconds)}</Text>
-          <Pressable onPress={stop} disabled={busy} accessibilityLabel="Stop recording" style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: colors.red, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="stop" size={22} color="#fff" />
+          <Pressable onPress={stop} disabled={busy} accessibilityLabel="Stop recording" style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: colors.dangerBg, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="stop" size={22} color={colors.onBrand} />
           </Pressable>
         </View>
       ) : (
-        <Pressable onPress={start} disabled={busy} accessibilityRole="button" style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: rows.length ? 8 : 0, height: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.brandSoft : '#fff', opacity: busy ? 0.6 : 1 })}>
+        <Pressable onPress={start} disabled={busy} accessibilityRole="button" style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: rows.length ? 8 : 0, height: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.brandSoft : colors.card, opacity: busy ? 0.6 : 1 })}>
           <Icon name="mic-outline" size={20} color={colors.brand} />
           <Text style={{ color: colors.brand, fontWeight: '600' }}>Record a voice note</Text>
         </Pressable>

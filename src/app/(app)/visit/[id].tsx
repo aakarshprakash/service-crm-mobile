@@ -16,7 +16,7 @@ import { toast } from '@/components/toast';
 import { Badge, Button, Card, Empty, ErrorView, Field, Icon, Input, Loading, Muted, Row, Screen, Segmented, Sheet, Stepper } from '@/components/ui';
 import { UpiSheet } from '@/components/UpiSheet';
 import { SignaturePad } from '@/components/SignaturePad';
-import { BarcodeScanner } from '@/components/BarcodeScanner';
+import { CallDetailsFields, callPayload, initialCallForm, type CallForm } from '@/components/CallDetails';
 import { VoiceNotes } from '@/components/VoiceNotes';
 import { colors } from '@/components/theme';
 
@@ -48,8 +48,8 @@ export default function VisitScreen() {
     <>
       <Stack.Screen options={{ title: job.data.crm_call_id }} />
       <View style={{ backgroundColor: colors.navy, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={{ color: '#fff', fontWeight: '600' }}>
-          <Icon name="timer-outline" size={16} color="#fff" /> {label(v.service_type)}
+        <Text style={{ color: colors.onBrand, fontWeight: '600' }}>
+          <Icon name="timer-outline" size={16} color={colors.onBrand} /> {label(v.service_type)}
         </Text>
         <VisitTimer start={v.start_time} />
       </View>
@@ -79,7 +79,7 @@ function VisitTimer({ start }: { start: string }) {
   const elapsed = Math.max(0, Math.floor((now - new Date(start).getTime()) / 1000));
   const hh = (n: number) => String(n).padStart(2, '0');
   return (
-    <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] }}>
+    <Text style={{ color: colors.onBrand, fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] }}>
       {hh(Math.floor(elapsed / 3600))}:{hh(Math.floor((elapsed % 3600) / 60))}:{hh(elapsed % 60)}
     </Text>
   );
@@ -87,28 +87,14 @@ function VisitTimer({ start }: { start: string }) {
 
 /** Correct the call details while on site (complaint, address, serial numbers…). */
 function CallTab({ job, visit }: { job: Job; visit: Visit }) {
-  const { data: lookups } = useLookups();
   const c = job.customer;
-  const [form, setForm] = useState({
-    complaint_type_id: String(job.complaint_type_id ?? ''),
-    complaint_details: job.complaint_details ?? '',
-    priority: job.priority,
-    address: c?.address ?? '',
-    city: c?.city ?? '',
-    pincode: c?.pincode ?? '',
-    alt_phone: c?.alt_phone ?? '',
-    serial_no: job.customer_product?.serial_no ?? '',
-    outdoor_serial_no: job.customer_product?.outdoor_serial_no ?? '',
-  });
-  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
-  const m = useApiMutation(() => api.patch(`/visits/${visit.id}`, { ...form, complaint_type_id: form.complaint_type_id || null, alt_phone: form.alt_phone || null }), {
+  const [form, setForm] = useState(() => initialCallForm(job));
+  const set = (k: keyof CallForm, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const m = useApiMutation(() => api.patch(`/visits/${visit.id}`, callPayload(form)), {
     invalidate: [['tech-job', String(job.id)]],
     toastValidation: false,
   });
   const e = (n: string) => fieldError(m.error, n);
-  const [pickType, setPickType] = useState(false);
-  const [scanFor, setScanFor] = useState<'serial_no' | 'outdoor_serial_no' | null>(null);
-  const typeName = lookups?.complaint_types.find((t) => String(t.id) === form.complaint_type_id)?.name;
   const qc = useQueryClient();
   const [locating, setLocating] = useState(false);
   const saveLocation = async () => {
@@ -136,51 +122,7 @@ function CallTab({ job, visit }: { job: Job; visit: Visit }) {
         <Text style={{ fontWeight: '700', color: colors.text }}>{c?.name}</Text>
         <Muted>{c?.phone}</Muted>
       </Card>
-      <Field label="Complaint type">
-        <Pressable onPress={() => setPickType(true)} style={{ borderWidth: 1, borderColor: '#D5DBE5', borderRadius: 12, height: 48, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff' }}>
-          <Text style={{ color: typeName ? colors.text : colors.faint, fontSize: 16 }}>{typeName ?? 'Select…'}</Text>
-          <Icon name="chevron-down" size={18} color={colors.faint} />
-        </Pressable>
-      </Field>
-      <Field label="Complaint details" error={e('complaint_details')}>
-        <Input multiline value={form.complaint_details} onChangeText={(v) => set('complaint_details', v)} />
-      </Field>
-      <Field label="Priority">
-        <Segmented value={form.priority} onChange={(v) => set('priority', v)} options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }]} />
-      </Field>
-      <Field label="Address" error={e('address')}>
-        <Input multiline value={form.address} onChangeText={(v) => set('address', v)} />
-      </Field>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}>
-          <Field label="City">
-            <Input value={form.city} onChangeText={(v) => set('city', v)} />
-          </Field>
-        </View>
-        <View style={{ flex: 1 }}>
-          <Field label="PIN code" error={e('pincode')}>
-            <Input value={form.pincode} keyboardType="number-pad" onChangeText={(v) => set('pincode', v)} />
-          </Field>
-        </View>
-      </View>
-      <Field label="Alternate phone" error={e('alt_phone')}>
-        <Input value={form.alt_phone} keyboardType="phone-pad" onChangeText={(v) => set('alt_phone', v)} />
-      </Field>
-      {([['serial_no', 'Serial no.'], ['outdoor_serial_no', 'Outdoor unit serial']] as const).map(([key, title]) => (
-        <Field key={key} label={title} error={e(key)}>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Input value={form[key]} autoCapitalize="characters" onChangeText={(v) => set(key, v)} style={{ flex: 1 }} placeholder="Type or scan" />
-            <Pressable
-              onPress={() => setScanFor(key)}
-              accessibilityRole="button"
-              accessibilityLabel={`Scan ${title}`}
-              style={({ pressed }) => ({ width: 48, height: 48, borderRadius: 12, backgroundColor: pressed ? colors.brandDark : colors.brand, alignItems: 'center', justifyContent: 'center' })}
-            >
-              <Icon name="barcode-outline" size={24} color="#fff" />
-            </Pressable>
-          </View>
-        </Field>
-      ))}
+      <CallDetailsFields form={form} set={set} error={e} hasProduct={!!job.customer_product} scanHint="Scanned. Tap “Save call details” to keep it." />
       <Button title="Save call details" loading={m.isPending} onPress={() => m.mutate(undefined)} />
 
       <Card title="Customer location">
@@ -189,23 +131,6 @@ function CallTab({ job, visit }: { job: Job; visit: Visit }) {
         </Muted>
         <Button title="I'm at the customer's place: save location" icon="location-outline" variant="secondary" size="sm" style={{ marginTop: 10 }} loading={locating} onPress={saveLocation} />
       </Card>
-
-      <BarcodeScanner
-        open={!!scanFor}
-        title={scanFor === 'outdoor_serial_no' ? 'Scan outdoor serial' : 'Scan serial number'}
-        onClose={() => setScanFor(null)}
-        onScanned={(value) => {
-          if (scanFor) set(scanFor, value);
-          toast.info('Scanned. Tap “Save call details” to keep it.');
-        }}
-      />
-      <Sheet open={pickType} onClose={() => setPickType(false)} title="Complaint type">
-        {lookups?.complaint_types.map((t) => (
-          <Pressable key={t.id} onPress={() => { set('complaint_type_id', String(t.id)); setPickType(false); }} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-            <Text style={{ fontSize: 16, color: String(t.id) === form.complaint_type_id ? colors.brand : colors.text }}>{t.name}</Text>
-          </Pressable>
-        ))}
-      </Sheet>
     </Screen>
   );
 }
@@ -534,7 +459,7 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
         <Segmented value={form.status} onChange={(v) => set('status', v)} options={[{ value: 'completed', label: 'Completed' }, { value: 'pending', label: 'Pending' }, { value: 'cancelled', label: 'Cancelled' }]} />
       </Field>
       <Field label="Action taken" required={form.status === 'completed'} error={e('action_taken_id')}>
-        <Pressable onPress={() => setPickAction(true)} style={{ borderWidth: 1, borderColor: e('action_taken_id') ? colors.red : '#CBD5E1', borderRadius: 10, minHeight: 46, paddingHorizontal: 12, justifyContent: 'center', backgroundColor: '#fff' }}>
+        <Pressable onPress={() => setPickAction(true)} style={{ borderWidth: 1, borderColor: e('action_taken_id') ? colors.red : colors.inputBorder, borderRadius: 10, minHeight: 46, paddingHorizontal: 12, justifyContent: 'center', backgroundColor: '#fff' }}>
           <Text style={{ color: actionName ? colors.text : colors.faint, fontSize: 16 }}>{actionName ?? 'Select what you did…'}</Text>
         </Pressable>
       </Field>

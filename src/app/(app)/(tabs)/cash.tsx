@@ -33,7 +33,7 @@ export default function Cash() {
   return (
     <Screen refreshing={q.isRefetching} onRefresh={() => { q.refetch(); history.refetch(); }}>
       {s.pending_dates.length > 0 && s.pending_dates[0] !== day && (
-        <Card style={{ backgroundColor: colors.amberSoft, borderColor: '#FDE68A' }}>
+        <Card style={{ backgroundColor: colors.amberSoft, borderColor: colors.amberBorder }}>
           <Text style={{ color: colors.amber, fontWeight: '600' }}>Earlier days are still open: {s.pending_dates.map(date).join(', ')}.</Text>
           <Button title={`Close ${date(s.pending_dates[0])} first`} variant="secondary" size="sm" style={{ marginTop: 10 }} onPress={() => setDay(s.pending_dates[0]!)} />
         </Card>

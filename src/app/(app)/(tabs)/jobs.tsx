@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, View } from 'react-native';
-import { Text } from '@/components/Text';
-import { router, useLocalSearchParams } from 'expo-router';
+import { FlatList, RefreshControl, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { api, type Envelope, type Paginated } from '@/lib/api';
-import { dateTime } from '@/lib/format';
 import type { Job, JobStatus } from '@/lib/types';
-import { Badge, Empty, ErrorView, Icon, Input, Loading, Muted, Segmented } from '@/components/ui';
+import { Empty, ErrorView, Icon, Input, Loading, Segmented } from '@/components/ui';
+import { JobCard } from '@/components/JobCard';
 import { colors } from '@/components/theme';
 
 const STATUSES: { value: JobStatus; label: string }[] = [
@@ -64,22 +63,7 @@ export default function Jobs() {
           onEndReachedThreshold={0.4}
           ListEmptyComponent={<Empty icon="clipboard-outline" title={debounced ? `Nothing matches “${debounced}”` : 'No jobs here'} message={debounced ? undefined : 'New jobs assigned to you show up here.'} />}
           ListFooterComponent={q.isFetchingNextPage ? <Loading /> : null}
-          renderItem={({ item: j }) => (
-            <Pressable onPress={() => router.push({ pathname: '/job/[id]', params: { id: j.id } })} style={({ pressed }) => ({ backgroundColor: pressed ? colors.bg : '#fff', borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 14, gap: 4 })}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ fontWeight: '700', color: colors.text }}>{j.crm_call_id}</Text>
-                <View style={{ flexDirection: 'row', gap: 6 }}>
-                  {j.priority === 'high' && <Badge text="high" />}
-                  <Badge text={j.status} />
-                </View>
-              </View>
-              <Text style={{ color: colors.text, fontWeight: '500' }} numberOfLines={1}>
-                {j.customer?.name} · {j.complaint_type?.name ?? 'Service'}
-              </Text>
-              <Muted>{[j.customer?.address, j.customer?.city].filter(Boolean).join(', ') || '—'}</Muted>
-              <Muted style={{ fontSize: 12 }}>Scheduled {dateTime(j.scheduled_at)}</Muted>
-            </Pressable>
-          )}
+          renderItem={({ item: j }) => <JobCard job={j} />}
         />
       )}
     </View>

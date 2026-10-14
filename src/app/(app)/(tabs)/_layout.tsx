@@ -18,10 +18,10 @@ function Bell() {
   const unread = (q.data?.meta.unread as number) ?? 0;
   return (
     <Pressable onPress={() => router.push('/notifications')} hitSlop={10} style={{ marginRight: 16 }} accessibilityLabel={`Notifications, ${unread} unread`}>
-      <Ionicons name="notifications-outline" size={24} color={colors.navy} />
+      <Ionicons name="notifications-outline" size={24} color={colors.heading} />
       {unread > 0 && (
-        <View style={{ position: 'absolute', right: -12, top: -7, minWidth: 28, height: 20, paddingHorizontal: 3, borderRadius: 10, backgroundColor: colors.red, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff' }}>
-          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700', includeFontPadding: false, textAlign: 'center' }}>{unread > 9 ? '9+' : unread}</Text>
+        <View style={{ position: 'absolute', right: -12, top: -7, minWidth: 28, height: 20, paddingHorizontal: 3, borderRadius: 10, backgroundColor: colors.dangerBg, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff' }}>
+          <Text style={{ color: colors.onBrand, fontSize: 10, fontWeight: '700', includeFontPadding: false, textAlign: 'center' }}>{unread > 9 ? '9+' : unread}</Text>
         </View>
       )}
     </Pressable>
@@ -33,7 +33,7 @@ function Brand() {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
       <Image source={require('../../../../assets/logo-mark.png')} style={{ width: 28, height: 28 }} resizeMode="contain" accessibilityIgnoresInvertColors />
-      <Text style={{ fontSize: 19, fontWeight: '800', color: colors.navy, letterSpacing: 0.5 }}>SERVON</Text>
+      <Text style={{ fontSize: 19, fontWeight: '800', color: colors.heading, letterSpacing: 0.5 }}>SERVON</Text>
     </View>
   );
 }
@@ -51,11 +51,11 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.brand,
         tabBarInactiveTintColor: colors.faint,
         tabBarLabelStyle: { fontFamily: FONT.semibold, fontSize: 11 },
-        tabBarStyle: { borderTopColor: colors.border, height: 60 + insets.bottom, paddingTop: 6, paddingBottom: insets.bottom + 4 },
+        tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.border, height: 60 + insets.bottom, paddingTop: 6, paddingBottom: insets.bottom + 4 },
         headerRight: () => <Bell />,
         headerTitleStyle: { fontFamily: FONT.bold, fontSize: 19, color: colors.text },
         headerShadowVisible: false,
-        headerStyle: { backgroundColor: '#fff' },
+        headerStyle: { backgroundColor: colors.card },
         sceneStyle: { backgroundColor: colors.bg },
       }}
     >

@@ -40,11 +40,11 @@ export default function Login() {
         <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24, gap: 20 }} keyboardShouldPersistTaps="handled">
           <View style={{ alignItems: 'center', gap: 10 }}>
             <Image source={require('../../assets/logo-mark.png')} style={{ width: 64, height: 64 }} resizeMode="contain" accessibilityLabel="Servon" />
-            <Text style={{ fontSize: 28, fontWeight: '800', color: colors.navy, letterSpacing: 1 }}>SERVON</Text>
+            <Text style={{ fontSize: 28, fontWeight: '800', color: colors.heading, letterSpacing: 1 }}>SERVON</Text>
             <Muted>Technician app · sign in to see your jobs</Muted>
           </View>
 
-          <View style={{ gap: 14, backgroundColor: '#fff', borderRadius: 16, padding: 18, borderWidth: 1, borderColor: colors.border }}>
+          <View style={{ gap: 14, backgroundColor: colors.card, borderRadius: 16, padding: 18, borderWidth: 1, borderColor: colors.border }}>
             <Field label="Email or mobile number" error={loginError}>
               <Input value={form.login} onChangeText={(v) => setForm({ ...form, login: v })} autoCapitalize="none" autoComplete="username" keyboardType="email-address" textContentType="username" placeholder="ravi@company.com or 98765 43210" />
             </Field>

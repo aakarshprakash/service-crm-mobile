@@ -40,7 +40,7 @@ export function StatusPill() {
       <View
         style={{
           flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999,
-          backgroundColor: '#fff', borderWidth: 1, borderColor: colors.border,
+          backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
           shadowColor: '#0F172A', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4,
         }}
       >
