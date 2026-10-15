@@ -51,7 +51,7 @@ export function ChangePasswordForm({ forced, onDone }: { forced?: boolean; onDon
 export function ForcePasswordChange() {
   const { user, logout } = useAuth();
   return (
-    <Screen>
+    <Screen headerless>
       <View style={{ alignItems: 'center', gap: 10, marginTop: 24 }}>
         <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="key" size={30} color={colors.brand} />

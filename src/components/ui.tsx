@@ -17,12 +17,13 @@ export function Icon({ name, size = 20, color = colors.text }: { name: IconName;
 }
 
 /** Scrollable screen body with pull-to-refresh. */
-export function Screen({ children, refreshing, onRefresh, padded = true, style }: { children: ReactNode; refreshing?: boolean; onRefresh?: () => void; padded?: boolean; style?: StyleProp<ViewStyle> }) {
+// `headerless`: no navigation header above (e.g. the forced password screen), so the keyboard offset is only the status bar.
+export function Screen({ children, refreshing, onRefresh, padded = true, style, headerless }: { children: ReactNode; refreshing?: boolean; onRefresh?: () => void; padded?: boolean; style?: StyleProp<ViewStyle>; headerless?: boolean }) {
   const insets = useSafeAreaInsets();
   return (
     // Android draws edge to edge, so the window no longer shrinks for the keyboard: pad on both
     // platforms (offset = status bar + header, which sit above this view) so fields stay visible.
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior="padding" keyboardVerticalOffset={insets.top + 56}>
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior="padding" keyboardVerticalOffset={insets.top + (headerless ? 0 : 56)}>
       <ScrollView
         contentContainerStyle={[padded && { padding: 16, paddingBottom: 32 }, { gap: 12 }, style]}
         keyboardShouldPersistTaps="handled"
