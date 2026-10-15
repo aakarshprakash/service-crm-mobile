@@ -62,7 +62,7 @@ export default function Me() {
       <SecurityCard />
       <AppearanceCard />
       <Card>
-        <Muted>App version {Constants.expoConfig?.version}</Muted>
+        <Muted>App version {Constants.expoConfig?.version} · Powered by <Text style={{ fontWeight: '700', letterSpacing: 1.5 }}>SYSNAC</Text></Muted>
         <Button
           title="Sign out"
           variant="secondary"
