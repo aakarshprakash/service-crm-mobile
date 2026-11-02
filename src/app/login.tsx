@@ -3,9 +3,10 @@ import { Image, KeyboardAvoidingView, Pressable, ScrollView, View } from 'react-
 import { Text } from '@/components/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
-import { ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { Button, Field, Icon, Input, Muted } from '@/components/ui';
+import { toast } from '@/components/toast';
+import { Button, Field, Icon, Input, Muted, Sheet } from '@/components/ui';
 import { colors } from '@/components/theme';
 
 /** Sign in with email or mobile number + password (Sanctum token for the app). */
@@ -16,6 +17,7 @@ export default function Login() {
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
   const [secure, setSecure] = useState(true);
+  const [forgot, setForgot] = useState(false);
   // The API reports bad credentials on "email" (web form name) or "login".
   const loginError = error?.field('login') ?? error?.field('email');
 
@@ -63,6 +65,7 @@ export default function Login() {
             )}
             {error && !loginError && !error.field('password') && !error.field('company') && <Text style={{ color: colors.red }}>{error.message}</Text>}
             <Button title="Sign in" size="lg" loading={busy} disabled={!form.login || !form.password} onPress={submit} />
+            <Button title="Forgot password?" variant="ghost" size="sm" onPress={() => setForgot(true)} />
           </View>
 
           <View style={{ alignItems: 'center', gap: 4 }}>
@@ -71,6 +74,36 @@ export default function Login() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      {forgot && <ForgotPassword onClose={() => setForgot(false)} initialEmail={form.login.includes('@') ? form.login : ''} />}
     </SafeAreaView>
+  );
+}
+
+/** Most technicians get a temporary password from the office; a reset email only helps with a real mailbox. */
+function ForgotPassword({ onClose, initialEmail }: { onClose: () => void; initialEmail: string }) {
+  const [email, setEmail] = useState(initialEmail);
+  const [busy, setBusy] = useState(false);
+  const send = async () => {
+    setBusy(true);
+    try {
+      await api.post('/auth/forgot-password', { email: email.trim() });
+      toast.success('If that email is on an account, a reset link is on its way.');
+      onClose();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Sheet open onClose={onClose} title="Forgot password?">
+      <Text style={{ fontWeight: '700', color: colors.text }}>Ask your office</Text>
+      <Muted>They can reset it and give you a temporary password. Sign in with that, and the app asks you to set a new one straight away.</Muted>
+      <Text style={{ fontWeight: '700', color: colors.text, marginTop: 8 }}>Or get a link by email</Text>
+      <Field label="Your email">
+        <Input value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
+      </Field>
+      <Button title="Send reset link" variant="secondary" loading={busy} disabled={!email.includes('@')} onPress={send} />
+    </Sheet>
   );
 }

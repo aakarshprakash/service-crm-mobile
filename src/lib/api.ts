@@ -1,5 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
-import { File, Paths } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 /**
@@ -70,6 +70,26 @@ export function setUnauthenticatedHandler(handler: () => void) {
   onUnauthenticated = handler;
 }
 
+let reportReachability: ((reached: boolean) => void) | null = null;
+
+export function setReachabilityReporter(fn: (reached: boolean) => void) {
+  reportReachability = fn;
+}
+
+/** Any answer at all, even an error page, means the server can be reached. */
+export async function pingServer(timeoutMs = 8000): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    await fetch(`${server}/api/v1/version`, { headers: { Accept: 'application/json' }, signal: controller.signal });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 type Query = Record<string, string | number | boolean | null | undefined>;
 
 function qs(params?: Query): string {
@@ -102,10 +122,12 @@ const TIMEOUT_MS = 15_000;
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const isForm = body instanceof FormData;
+  const sentToken = token;
   const h = headers({ Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' });
   if (!isForm && body !== undefined) h['Content-Type'] = 'application/json';
 
   let res: Response;
+  let text: string;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), isForm ? TIMEOUT_MS * 4 : TIMEOUT_MS);
   try {
@@ -115,13 +137,16 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       body: isForm ? (body as FormData) : body !== undefined ? JSON.stringify(body) : undefined,
       signal: controller.signal,
     });
+    text = await res.text();
+    reportReachability?.(true);
   } catch {
+    // A slow answer isn't "offline": only a request that couldn't get through asks for a check.
+    if (!controller.signal.aborted) reportReachability?.(false);
     throw new ApiError(0, controller.signal.aborted ? 'The server is taking too long to respond. Check your connection and try again.' : 'Can’t reach the server. Check your internet connection.');
   } finally {
     clearTimeout(timer);
   }
 
-  const text = await res.text();
   let json: any = null;
   try {
     json = text ? JSON.parse(text) : null;
@@ -129,7 +154,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     json = null;
   }
   if (!res.ok) {
-    if (res.status === 401 && !path.startsWith('/auth/token')) {
+    // Only the session that was refused: a slow answer for an old token must not end a newer sign-in.
+    if (res.status === 401 && !path.startsWith('/auth/token') && sentToken === token) {
       await setToken(null);
       onUnauthenticated?.();
     }
@@ -147,6 +173,17 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body ?? {}),
   delete: <T>(path: string) => request<T>('DELETE', path),
 };
+
+/** Invoices and payslips stay in the app's cache after viewing: clear them when someone signs out. */
+export function clearDownloadedPdfs() {
+  try {
+    for (const entry of new Directory(Paths.cache).list()) {
+      if (entry instanceof File && entry.name.endsWith('.pdf')) entry.delete();
+    }
+  } catch {
+    /* best effort */
+  }
+}
 
 /** Download an authenticated PDF to the cache and open the share / open-with sheet. */
 export async function openPdf(path: string, filename: string): Promise<void> {

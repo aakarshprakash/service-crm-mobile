@@ -1,39 +1,65 @@
-import { useState } from 'react';
-import { Linking, Pressable, Share, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Linking, Pressable, Share, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Envelope } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { callAge, date, dateTime, label, money, productName, schedule } from '@/lib/format';
-import { useTechDashboard } from '@/lib/punch';
+import { callAge, date, dateTime, label, money, productName, qty, schedule } from '@/lib/format';
+import { fieldError, isGone, useApiMutation } from '@/lib/hooks';
+import { DASHBOARD_KEY, useTechDashboard } from '@/lib/punch';
 import type { Job } from '@/lib/types';
 import { toast } from '@/components/toast';
-import { Badge, Button, Card, ErrorView, Icon, Loading, Muted, Row, Screen, type IconName } from '@/components/ui';
+import { Badge, Banner, BottomBar, Button, Card, ErrorView, Field, FlowSteps, Icon, Input, Loading, Muted, Row, Screen, Sheet, type IconName } from '@/components/ui';
+import { BillSummary } from '@/components/BillSummary';
 import { CollectPayment } from '@/components/CollectPayment';
+import { CustomerLocationCard, useCollectLocation } from '@/components/CustomerLocation';
 import { JobAddress, JobTags, ScheduleChip } from '@/components/JobCard';
+import { JobTimeline } from '@/components/JobTimeline';
 import { PunchFirst } from '@/components/PunchFirst';
-import { colors } from '@/components/theme';
+import { colors, radius } from '@/components/theme';
+
+/** Jobs already warned about a missing location in this run of the app: once is enough. */
+const warnedAboutLocation = new Set<number>();
+
+const STARTABLE = ['open', 'pending', 'part_pending'];
 
 export default function JobDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const q = useQuery({ queryKey: ['tech-job', id], queryFn: () => api.get<Envelope<Job>>(`/jobs/${id}`).then((r) => r.data) });
+  if (q.isPending) return <Loading />;
+  if (!q.data || isGone(q.error)) return <ErrorView error={q.error} onRetry={q.refetch} />;
+  return <JobView job={q.data} refreshing={q.isRefetching} refetch={q.refetch} />;
+}
+
+function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; refetch: () => void }) {
   const { user } = useAuth();
   const dash = useTechDashboard().data;
   const [punchFirst, setPunchFirst] = useState(false);
   const [collecting, setCollecting] = useState(false);
-  const job = q.data;
-
-  if (q.isLoading) return <Loading />;
-  if (q.error || !job) return <ErrorView error={q.error} onRetry={q.refetch} />;
+  const [cancelling, setCancelling] = useState(false);
+  const { collect, locating } = useCollectLocation(job);
 
   const active = job.visits?.find((v) => v.status === 'in_progress');
   const c = job.customer;
   const p = job.customer_product;
   const address = [c?.address, c?.city, c?.pincode].filter(Boolean).join(', ');
   const history = (job.visits ?? []).filter((v) => v.status !== 'in_progress');
+  const parts = (job.visits ?? []).flatMap((v) => v.inventory_usage ?? []);
   const phone = (c?.phone ?? '').replace(/\D/g, '');
   const finished = ['completed', 'cancelled'].includes(job.status);
+  const canStart = STARTABLE.includes(job.status);
+  const missingLocation = c?.lat == null && !finished && job.status !== 'cancel_requested';
+
+  // Ask as soon as the job opens: the technician may well be standing at the customer's place.
+  useEffect(() => {
+    if (!missingLocation || warnedAboutLocation.has(job.id)) return;
+    warnedAboutLocation.add(job.id);
+    Alert.alert('Customer location is missing', 'Collect it when you reach the customer’s place. If you’re there now, save it from here.', [
+      { text: 'Later', style: 'cancel' },
+      { text: 'I’m there: save it', onPress: collect },
+    ]);
+  }, [missingLocation, job.id, collect]);
 
   // Punch-in check first (the server checks again), then "Check details" before the visit starts.
   const startService = () => {
@@ -54,26 +80,24 @@ export default function JobDetail() {
           ),
         }}
       />
-      <Screen refreshing={q.isRefetching} onRefresh={q.refetch}>
-        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Badge text={job.status} />
-          <Badge text={job.priority} />
-          {!finished && job.call_age_days != null && <Badge text={callAge(job.call_age_days)} tone={(job.call_age_days ?? 0) >= 3 ? 'pending' : 'none'} />}
-        </View>
-        <ScheduleChip job={job} size="lg" />
+      <Screen refreshing={refreshing} onRefresh={refetch}>
+        {!finished && job.status !== 'cancel_requested' && <FlowSteps current={active ? 'service' : 'job'} />}
 
-        {job.status === 'part_pending' && job.part_pending_note && (
-          <View style={{ backgroundColor: colors.redSoft, borderRadius: 10, padding: 12 }}>
-            <Text style={{ color: colors.red, fontWeight: '700' }}>Waiting for a part</Text>
-            <Text style={{ color: colors.red }}>{job.part_pending_note}</Text>
+        <View style={{ backgroundColor: colors.navy, borderRadius: radius.lg, padding: 16, gap: 10 }}>
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Badge text={job.status} />
+            <Badge text={job.priority} />
+            {!finished && job.call_age_days != null && <Badge text={callAge(job.call_age_days)} tone={(job.call_age_days ?? 0) >= 3 ? 'pending' : 'none'} />}
           </View>
-        )}
-        {job.status === 'cancel_requested' && (
-          <View style={{ backgroundColor: colors.redSoft, borderRadius: 10, padding: 12 }}>
-            <Text style={{ color: colors.red, fontWeight: '700' }}>Waiting for the office to approve the cancellation</Text>
-            {job.cancel_reason && <Text style={{ color: colors.red }}>Your reason: {job.cancel_reason}</Text>}
+          <View>
+            <Text style={{ color: colors.onBrand, fontSize: 20, fontWeight: '800' }}>{job.complaint_type?.name ?? 'Service'}</Text>
+            {!!productName(p) && <Text style={{ color: colors.onBrand, opacity: 0.8 }}>{productName(p)}</Text>}
           </View>
-        )}
+          <ScheduleChip job={job} size="lg" />
+        </View>
+
+        {job.status === 'part_pending' && job.part_pending_note && <Banner tone="danger" icon="cube-outline" title="Waiting for a part" message={job.part_pending_note} />}
+        {job.status === 'cancel_requested' && <Banner tone="danger" icon="hourglass-outline" title="Waiting for the office to approve the cancellation" message={job.cancel_reason ? `Your reason: ${job.cancel_reason}` : null} />}
 
         <Card>
           <Text style={{ fontSize: 17, fontWeight: '700', color: colors.text }}>{c?.name}</Text>
@@ -85,29 +109,28 @@ export default function JobDetail() {
           <View style={{ marginTop: 10 }}>
             <JobAddress job={job} lines={4} />
           </View>
-          {c?.lat != null && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, alignSelf: 'flex-start', backgroundColor: c.location_source === 'customer' ? colors.accentSoft : colors.brandSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
-              <Icon name="navigate-circle-outline" size={14} color={c.location_source === 'customer' ? colors.green : colors.brand} />
-              <Text style={{ fontSize: 12, fontWeight: '600', color: c.location_source === 'customer' ? colors.green : colors.brand }}>
-                {c.location_source === 'customer' ? 'Customer shared exact location' : c.location_source === 'technician' ? 'Location saved on site' : 'Exact location available'}
-                {c.location_updated_at ? ` · ${dateTime(c.location_updated_at)}` : ''}
-              </Text>
-            </View>
-          )}
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
             <Action icon="call" label="Call" color={colors.green} onPress={() => Linking.openURL(`tel:${c?.phone}`)} />
             <Action icon="logo-whatsapp" label="WhatsApp" color={colors.whatsapp} onPress={() => Linking.openURL(`https://wa.me/${phone.length === 10 ? '91' + phone : phone}`)} />
             <Action icon="navigate" label="Directions" color={colors.brand} onPress={() => Linking.openURL(mapsLink(job, true) ?? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`)} />
-            <Action icon="share-social-outline" label="Share" color={colors.violet} onPress={() => shareJob(job)} />
           </View>
         </Card>
+
+        {!finished && job.status !== 'cancel_requested' && <CustomerLocationCard job={job} />}
+        {locating && <Muted style={{ textAlign: 'center' }}>Getting your location…</Muted>}
 
         <Card title="Complaint & product">
           <View style={{ marginBottom: 8 }}>
             <JobTags job={job} />
           </View>
+          {job.complaint_details && (
+            <View style={{ marginBottom: 8, backgroundColor: colors.bg, borderRadius: 10, padding: 12 }}>
+              <Text style={{ color: colors.text }}>{job.complaint_details}</Text>
+            </View>
+          )}
           <Row k="Complaint" v={job.complaint_type?.name ?? '—'} />
           <Row k="Summary" v={job.complaint_summary?.name ?? '—'} />
+          <Row k="Category" v={job.product_category ?? p?.category?.name ?? p?.product?.category?.name ?? '—'} />
           <Row k="Product" v={productName(p) || '—'} />
           <Row k="Serial no." v={p?.serial_no ?? '—'} />
           {p?.outdoor_serial_no && <Row k="Outdoor serial" v={p.outdoor_serial_no} />}
@@ -115,12 +138,49 @@ export default function JobDetail() {
           <Row k="Purchased" v={date(p?.purchase_date)} />
           <Row k="Logged" v={dateTime(job.created_at)} />
           {job.customer_satisfaction_code && <Row k="Customer Satisfaction Code" v={job.customer_satisfaction_code} />}
-          {job.complaint_details && (
-            <View style={{ marginTop: 10, backgroundColor: colors.bg, borderRadius: 10, padding: 12 }}>
-              <Text style={{ color: colors.text }}>{job.complaint_details}</Text>
-            </View>
-          )}
         </Card>
+
+        <JobTimeline job={job} />
+
+        {!!parts.length && (
+          <Card title="Parts used on this job" padded={false}>
+            {parts.map((u, i) => (
+              <View key={u.id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10, padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: '600', color: colors.text }}>{u.item?.name}</Text>
+                  <Muted>
+                    {qty(u.quantity)} {u.item?.unit_of_measure} × {money(u.unit_price)}
+                    {u.from_technician_stock ? ' · from your parts' : ''}
+                  </Muted>
+                </View>
+                <Text style={{ fontWeight: '600', color: colors.text }}>{money(u.total_price)}</Text>
+              </View>
+            ))}
+          </Card>
+        )}
+
+        {job.invoice && (
+          <BillSummary invoice={job.invoice}>
+            {job.invoice.balance_amount > 0 && !active && <Button title={`Collect balance ${money(job.invoice.balance_amount)}`} size="sm" icon="cash-outline" onPress={() => setCollecting(true)} />}
+          </BillSummary>
+        )}
+
+        {!!history.length && (
+          <Card title="Visits on this job" padded={false}>
+            {history.map((v, i) => (
+              <View key={v.id} style={{ padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, gap: 2 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ fontWeight: '600', color: colors.text }}>{date(v.start_time)}</Text>
+                  <Badge text={v.status} />
+                </View>
+                <Muted>
+                  {v.technician?.name} · {label(v.service_type)} · {money(v.total_charge)}
+                </Muted>
+                {v.service_summary && <Text style={{ color: colors.text, fontSize: 13 }}>{v.service_summary}</Text>}
+              </View>
+            ))}
+          </Card>
+        )}
 
         {!!job.previous_services?.length && (
           <Card title="Previous service" padded={false}>
@@ -142,41 +202,19 @@ export default function JobDetail() {
           </Card>
         )}
 
-        {job.invoice && (
-          <Card title="Bill">
-            <Row k="Invoice" v={job.invoice.invoice_number} />
-            <Row k="Total" v={money(job.invoice.total_amount)} />
-            <Row k="Paid" v={money(job.invoice.paid_amount)} />
-            <Row k="Balance" v={money(job.invoice.balance_amount)} strong vStyle={job.invoice.balance_amount > 0 ? { color: colors.red } : undefined} />
-          </Card>
-        )}
-
-        {!!history.length && (
-          <Card title="Visits on this job" padded={false}>
-            {history.map((v, i) => (
-              <View key={v.id} style={{ padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, gap: 2 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={{ fontWeight: '600', color: colors.text }}>{date(v.start_time)}</Text>
-                  <Badge text={v.status} />
-                </View>
-                <Muted>
-                  {v.technician?.name} · {label(v.service_type)} · {money(v.total_charge)}
-                </Muted>
-                {v.service_summary && <Text style={{ color: colors.text, fontSize: 13 }}>{v.service_summary}</Text>}
-              </View>
-            ))}
-          </Card>
-        )}
-
-        {active ? (
-          <Button title="Continue service" size="lg" icon="play" onPress={() => router.push({ pathname: '/visit/[id]', params: { id: active.id, job: job.id } })} />
-        ) : (
-          ['open', 'pending', 'part_pending'].includes(job.status) && <Button title="Start service" size="lg" icon="construct" onPress={startService} />
-        )}
-        {job.invoice && job.invoice.balance_amount > 0 && !active && (
-          <Button title={`Collect balance ${money(job.invoice.balance_amount)}`} variant="secondary" icon="cash-outline" onPress={() => setCollecting(true)} />
-        )}
+        {canStart && !active && <Button title="Ask the office to cancel this job" variant="ghost" size="sm" icon="close-circle-outline" onPress={() => setCancelling(true)} />}
       </Screen>
+      {active ? (
+        <BottomBar>
+          <Button title="Continue service" size="lg" icon="play" style={{ flex: 1 }} onPress={() => router.push({ pathname: '/visit/[id]', params: { id: active.id, job: job.id } })} />
+        </BottomBar>
+      ) : (
+        canStart && (
+          <BottomBar>
+            <Button title="Check details & start" size="lg" icon="arrow-forward" style={{ flex: 1 }} onPress={startService} />
+          </BottomBar>
+        )
+      )}
       <PunchFirst
         open={punchFirst}
         onClose={() => setPunchFirst(false)}
@@ -194,11 +232,47 @@ export default function JobDetail() {
           onClose={() => setCollecting(false)}
           onDone={() => {
             setCollecting(false);
-            q.refetch();
+            refetch();
           }}
         />
       )}
+      <CancelRequest job={job} open={cancelling} onClose={() => setCancelling(false)} />
     </>
+  );
+}
+
+/** The technician can only ask: the job stays with them until the office approves or rejects it. */
+function CancelRequest({ job, open, onClose }: { job: Job; open: boolean; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [reason, setReason] = useState('');
+  const m = useApiMutation(() => api.post(`/jobs/${job.id}/cancel-request`, { reason: reason.trim() }), {
+    toastValidation: false,
+    success: 'Sent to the office for approval',
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tech-job', String(job.id)] });
+      qc.invalidateQueries({ queryKey: DASHBOARD_KEY });
+      qc.invalidateQueries({ queryKey: ['tech-jobs'] });
+      onClose();
+    },
+  });
+  const short = reason.trim().length < 10;
+  return (
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Ask to cancel this job"
+      footer={
+        <>
+          <Button title="Go back" variant="secondary" style={{ flex: 1 }} onPress={onClose} />
+          <Button title="Send for approval" variant="danger" style={{ flex: 1 }} loading={m.isPending} disabled={short} onPress={() => m.mutate(undefined)} />
+        </>
+      }
+    >
+      <Muted>The office decides. Until then the job shows as waiting, and if they reject it, it comes back to you.</Muted>
+      <Field label="Reason" required error={fieldError(m.error, 'reason') ?? fieldError(m.error, 'job')} hint="At least 10 characters, so the office can decide.">
+        <Input multiline maxLength={500} value={reason} onChangeText={setReason} placeholder="Why should this job be cancelled?" />
+      </Field>
+    </Sheet>
   );
 }
 

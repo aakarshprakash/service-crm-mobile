@@ -46,6 +46,8 @@ export function JobTags({ job }: { job: Job }) {
     else if (p.warranty_type || p.warranty_expiry) tags.push(<Tag key="w" icon="shield-outline" text="Out of warranty" tone={colors.amber} bg={colors.amberSoft} />);
     if (p.purchase_date) tags.push(<Tag key="pd" icon="bag-handle-outline" text={`Bought ${date(p.purchase_date)}`} />);
   }
+  // Only known when the job came with the customer's coordinates.
+  if (job.customer?.lat === null && !['completed', 'cancelled'].includes(job.status)) tags.push(<Tag key="loc" icon="location-outline" text="Location missing" tone={colors.amber} bg={colors.amberSoft} />);
   return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{tags}</View>;
 }
 

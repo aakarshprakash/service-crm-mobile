@@ -13,7 +13,7 @@ import { Button, Loading, Muted, Sheet } from './ui';
  * the payment as UPI with the transaction reference from the customer's app.
  */
 export function UpiSheet({ open, onClose, amount, note, branchId }: { open: boolean; onClose: () => void; amount: number; note: string; branchId?: number | null }) {
-  const { data, isLoading } = useLookups();
+  const { data, isPending } = useLookups();
   const accounts = data?.upi_accounts ?? [];
   const [accountId, setAccountId] = useState<number | null>(null);
   const account = accounts.find((a) => a.id === accountId) ?? pickUpiAccount(accounts, branchId);
@@ -33,7 +33,7 @@ export function UpiSheet({ open, onClose, amount, note, branchId }: { open: bool
         ) : undefined
       }
     >
-      {isLoading ? (
+      {isPending ? (
         <Loading />
       ) : !account ? (
         <Muted>No UPI ID is set up. Ask the office to add one in Settings → Master data → UPI accounts.</Muted>

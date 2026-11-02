@@ -30,7 +30,8 @@ export default function Jobs() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const counts = useQuery({ queryKey: ['tech-job-counts'], queryFn: () => api.get<Envelope<Record<JobStatus, number>>>('/jobs/counts').then((r) => r.data) });
+  // Under 'tech-jobs', so everything that refreshes the lists refreshes the numbers on the filters too.
+  const counts = useQuery({ queryKey: ['tech-jobs', 'counts'], queryFn: () => api.get<Envelope<Record<JobStatus, number>>>('/jobs/counts').then((r) => r.data) });
   // A search looks across every status.
   const q = useInfiniteQuery({
     queryKey: ['tech-jobs', debounced ? 'all' : status, debounced],
@@ -51,9 +52,9 @@ export default function Jobs() {
         </View>
         {!debounced && <Segmented columns={3} value={status} onChange={setStatus} options={STATUSES.map((s) => ({ ...s, count: counts.data?.[s.value] }))} />}
       </View>
-      {q.isLoading ? (
+      {q.isPending ? (
         <Loading />
-      ) : q.error ? (
+      ) : !q.data ? (
         <ErrorView error={q.error} onRetry={q.refetch} />
       ) : (
         <FlatList

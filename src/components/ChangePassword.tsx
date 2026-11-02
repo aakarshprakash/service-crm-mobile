@@ -9,7 +9,9 @@ import { colors } from '@/components/theme';
 
 /** Current + new password. Other phones and browsers are signed out by the server. */
 export function ChangePasswordForm({ forced, onDone }: { forced?: boolean; onDone: () => void }) {
-  const { refresh } = useAuth();
+  const { refresh, temporaryPassword } = useAuth();
+  // Just signed in with the office's temporary password: no need to type it a second time.
+  const known = forced ? temporaryPassword : null;
   const [pw, setPw] = useState({ current_password: '', password: '', password_confirmation: '' });
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
@@ -18,7 +20,7 @@ export function ChangePasswordForm({ forced, onDone }: { forced?: boolean; onDon
     setBusy(true);
     setError(null);
     try {
-      await api.put('/auth/password', pw);
+      await api.put('/auth/password', { ...pw, current_password: known ?? pw.current_password });
       await refresh();
       toast.success(forced ? 'Password changed. Welcome!' : 'Password changed. Your other devices were signed out.');
       setPw({ current_password: '', password: '', password_confirmation: '' });
@@ -33,16 +35,18 @@ export function ChangePasswordForm({ forced, onDone }: { forced?: boolean; onDon
 
   return (
     <View style={{ gap: 14 }}>
-      <Field label={forced ? 'Temporary password' : 'Current password'} error={error?.field('current_password')}>
-        <Input secureTextEntry autoComplete="current-password" value={pw.current_password} onChangeText={(v) => setPw({ ...pw, current_password: v })} />
-      </Field>
+      {!known && (
+        <Field label={forced ? 'Temporary password' : 'Current password'} error={error?.field('current_password')}>
+          <Input secureTextEntry autoComplete="current-password" value={pw.current_password} onChangeText={(v) => setPw({ ...pw, current_password: v })} />
+        </Field>
+      )}
       <Field label="New password" error={error?.field('password')} hint="8+ characters with upper and lower case letters and a number.">
         <Input secureTextEntry autoComplete="new-password" value={pw.password} onChangeText={(v) => setPw({ ...pw, password: v })} />
       </Field>
-      <Field label="Confirm new password">
+      <Field label="Confirm new password" error={pw.password_confirmation && pw.password !== pw.password_confirmation ? 'The two passwords don’t match.' : undefined}>
         <Input secureTextEntry autoComplete="new-password" value={pw.password_confirmation} onChangeText={(v) => setPw({ ...pw, password_confirmation: v })} />
       </Field>
-      <Button title={forced ? 'Save and continue' : 'Change password'} icon="key-outline" loading={busy} disabled={!pw.current_password || !pw.password} onPress={save} />
+      <Button title={forced ? 'Save and continue' : 'Change password'} icon="key-outline" loading={busy} disabled={!(known || pw.current_password) || !pw.password || pw.password !== pw.password_confirmation} onPress={save} />
     </View>
   );
 }
@@ -56,8 +60,8 @@ export function ForcePasswordChange() {
         <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="key" size={30} color={colors.brand} />
         </View>
-        <Text style={{ fontSize: 20, fontWeight: '800', color: colors.heading, textAlign: 'center' }}>Choose your own password</Text>
-        <Muted style={{ textAlign: 'center' }}>Hi {user?.name}. The office gave you a temporary password. Replace it to start using the app.</Muted>
+        <Text style={{ fontSize: 20, fontWeight: '800', color: colors.heading, textAlign: 'center' }}>Set a new password</Text>
+        <Muted style={{ textAlign: 'center' }}>Hi {user?.name}. The office reset your password. Choose your own to start using the app.</Muted>
       </View>
       <Card>
         <ChangePasswordForm forced onDone={() => undefined} />

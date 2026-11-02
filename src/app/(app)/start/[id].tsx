@@ -4,28 +4,28 @@ import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Text } from '@/components/Text';
 import { api, ApiError, type Envelope } from '@/lib/api';
+import { isGone } from '@/lib/hooks';
 import { getPosition, tryPosition } from '@/lib/location';
-import { productName } from '@/lib/format';
 import { DASHBOARD_KEY } from '@/lib/punch';
 import type { Job, Visit } from '@/lib/types';
 import { toast } from '@/components/toast';
-import { CallDetailsFields, callPayload, initialCallForm, type CallForm } from '@/components/CallDetails';
-import { JobTags, ScheduleChip } from '@/components/JobCard';
+import { ComplaintFields, ProductFields, callPayload, initialCallForm, type CallForm } from '@/components/CallDetails';
+import { CustomerLocationCard } from '@/components/CustomerLocation';
 import { PunchFirst } from '@/components/PunchFirst';
-import { Button, Card, Empty, ErrorView, Icon, Loading, Muted, Screen, Segmented } from '@/components/ui';
+import { Banner, BottomBar, Button, Card, Empty, ErrorView, FlowSteps, Loading, Muted, Screen, Segmented } from '@/components/ui';
 import { colors } from '@/components/theme';
 
 type ServiceType = 'on_site' | 'tele_call' | 'office';
 
 /**
- * Before a visit: check the customer and product details, fix what's wrong or missing,
+ * Step 2 of a job: check the complaint and product details, fix what's wrong or missing,
  * pick how the call is being served, then start (timer and location).
  */
 export default function StartService() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const q = useQuery({ queryKey: ['tech-job', id], queryFn: () => api.get<Envelope<Job>>(`/jobs/${id}`).then((r) => r.data) });
-  if (q.isLoading) return <Loading />;
-  if (q.error || !q.data) return <ErrorView error={q.error} onRetry={q.refetch} />;
+  if (q.isPending) return <Loading />;
+  if (!q.data || isGone(q.error)) return <ErrorView error={q.error} onRetry={q.refetch} />;
   if (!['open', 'pending', 'part_pending'].includes(q.data.status)) {
     return (
       <Screen>
@@ -48,8 +48,6 @@ function StartForm({ job }: { job: Job }) {
   const [locError, setLocError] = useState<string | null>(null);
   const [punchFirst, setPunchFirst] = useState(false);
   const c = job.customer;
-  const p = job.customer_product;
-  const product = productName(p);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
 
   const start = async () => {
@@ -97,31 +95,27 @@ function StartForm({ job }: { job: Job }) {
 
   return (
     <>
-      <Stack.Screen options={{ title: `Start ${job.crm_call_id}` }} />
+      <Stack.Screen options={{ title: `Check ${job.crm_call_id}` }} />
       <Screen>
-        <Steps />
+        <FlowSteps current="check" />
 
         <Card>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: colors.text }}>{c?.name}</Text>
               <Muted>{c?.phone}{c?.alt_phone ? ` · ${c.alt_phone}` : ''}</Muted>
+              {!!c?.address && <Muted>{[c.address, c.city, c.pincode].filter(Boolean).join(', ')}</Muted>}
             </View>
             <Button title="Call" size="sm" variant="secondary" icon="call" onPress={() => Linking.openURL(`tel:${c?.phone}`)} />
           </View>
-          <View style={{ marginTop: 12, gap: 8 }}>
-            <ScheduleChip job={job} />
-            <Text style={{ color: colors.text }}>
-              {job.complaint_type?.name ?? 'Service'}
-              {product ? <Text style={{ color: colors.muted }}> · {product}</Text> : null}
-            </Text>
-            <JobTags job={job} />
-          </View>
+          <Muted style={{ fontSize: 12, marginTop: 8 }}>Customer details wrong? Ask the office to correct them.</Muted>
         </Card>
 
-        <Text style={{ fontSize: 15, fontWeight: '700', color: colors.text, marginTop: 4 }}>Check and fill in the details</Text>
-        <Muted style={{ marginTop: -6 }}>Correct anything that’s wrong and add what’s missing, such as the model or serial number. It’s saved when you start.</Muted>
-        <CallDetailsFields form={form} set={set} error={(f) => errors?.field(f)} hasProduct={!!p} brandId={p?.brand?.id ?? p?.product?.brand?.id} scanHint="Scanned. It’s saved when you start the service." />
+        <CustomerLocationCard job={job} />
+
+        <Muted>Correct what’s wrong and add what’s missing, such as the serial number. It’s saved when you start.</Muted>
+        <ComplaintFields form={form} set={set} error={(f) => errors?.field(f)} />
+        <ProductFields job={job} form={form} set={set} error={(f) => errors?.field(f)} scanHint="Scanned. It’s saved when you start the service." />
 
         <Card title="How are you serving this call?">
           <Segmented
@@ -136,18 +130,11 @@ function StartForm({ job }: { job: Job }) {
           <Muted style={{ fontSize: 12 }}>{type === 'on_site' ? 'Your location is recorded when the visit starts.' : 'No site visit: location is optional.'}</Muted>
         </Card>
 
-        {locError && (
-          <View style={{ flexDirection: 'row', gap: 10, backgroundColor: colors.redSoft, borderRadius: 10, padding: 12 }}>
-            <Icon name="location-outline" color={colors.red} />
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.red, fontWeight: '700' }}>Location needed for on-site visits</Text>
-              <Text style={{ color: colors.red }}>{locError}</Text>
-            </View>
-          </View>
-        )}
-
-        <Button title={dirty ? 'Save & start service' : 'Start service'} size="lg" icon="play" loading={busy} onPress={start} />
+        {locError && <Banner tone="danger" icon="location-outline" title="Location needed for on-site visits" message={locError} />}
       </Screen>
+      <BottomBar>
+        <Button title={dirty ? 'Save & start service' : 'Start service'} size="lg" icon="play" loading={busy} style={{ flex: 1 }} onPress={start} />
+      </BottomBar>
       <PunchFirst
         open={punchFirst}
         onClose={() => setPunchFirst(false)}
@@ -157,25 +144,5 @@ function StartForm({ job }: { job: Job }) {
         }}
       />
     </>
-  );
-}
-
-function Steps() {
-  const step = (n: number, text: string, on: boolean) => (
-    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: on ? colors.brand : colors.chip, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: on ? colors.onBrand : colors.muted, fontSize: 12, fontWeight: '700' }}>{n}</Text>
-      </View>
-      <Text style={{ flexShrink: 1, color: on ? colors.text : colors.muted, fontWeight: '600', fontSize: 13 }} numberOfLines={1}>
-        {text}
-      </Text>
-    </View>
-  );
-  return (
-    <View style={{ flexDirection: 'row', gap: 8 }}>
-      {step(1, 'Check details', true)}
-      {step(2, 'Start', true)}
-      {step(3, 'Complete', false)}
-    </View>
   );
 }

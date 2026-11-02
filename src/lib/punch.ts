@@ -1,5 +1,5 @@
 import { useQuery, type QueryClient } from '@tanstack/react-query';
-import { api, type Envelope } from './api';
+import { api, ApiError, type Envelope } from './api';
 import { getPosition } from './location';
 import type { Job, PunchRules, Visit } from './types';
 
@@ -28,8 +28,16 @@ export function useTechDashboard() {
  */
 export async function punch(type: 'in' | 'out', qc: QueryClient, refreshUser: () => Promise<unknown>): Promise<{ message: string; outside: boolean }> {
   // Sent when available; required by the server only when the company asks for it.
-  const pos = await getPosition(6000).catch(() => null);
-  const res = await api.post<Envelope<{ within_fence: boolean | null }> & { message?: string }>('/punch', { type, source: 'mobile', ...(pos ?? {}) });
+  let noFix: string | null = null;
+  const pos = await getPosition(6000).catch((e: Error) => {
+    noFix = e.message;
+    return null;
+  });
+  const res = await api.post<Envelope<{ within_fence: boolean | null }> & { message?: string }>('/punch', { type, source: 'mobile', ...(pos ?? {}) }).catch((e) => {
+    // The server can only say "turn on GPS". The phone knows why: permission, switched off, or no fix yet.
+    if (noFix && e instanceof ApiError && e.field('location')) throw new ApiError(e.status, noFix, { location: [noFix] });
+    throw e;
+  });
   // Wait only for the user's on-duty status; the lists refresh in the background.
   qc.invalidateQueries({ queryKey: DASHBOARD_KEY });
   qc.invalidateQueries({ queryKey: ['my-attendance'] });

@@ -27,8 +27,8 @@ export default function Cash() {
   });
   const differs = s && toMinor(declared) !== s.expected_in_hand;
 
-  if (q.isLoading) return <Loading />;
-  if (q.error || !s) return <ErrorView error={q.error} onRetry={q.refetch} />;
+  if (q.isPending) return <Loading />;
+  if (!s) return <ErrorView error={q.error} onRetry={q.refetch} />;
 
   return (
     <Screen refreshing={q.isRefetching} onRefresh={() => { q.refetch(); history.refetch(); }}>
@@ -109,6 +109,7 @@ export default function Cash() {
               <View style={{ flex: 1 }}>
                 <Text style={{ color: colors.text, fontWeight: '600' }}>{p.customer ?? '—'}</Text>
                 <Muted>
+                  {p.call_id ? `Job ${p.call_id} · ` : ''}
                   {p.receipt_number} · {METHOD_LABEL[p.method] ?? p.method} · {time(p.paid_at)}
                 </Muted>
               </View>

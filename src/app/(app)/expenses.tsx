@@ -30,8 +30,8 @@ export default function Expenses() {
     },
   });
 
-  if (q.isLoading) return <Loading />;
-  if (q.error || !q.data) return <ErrorView error={q.error} onRetry={q.refetch} />;
+  if (q.isPending) return <Loading />;
+  if (!q.data) return <ErrorView error={q.error} onRetry={q.refetch} />;
   const claims = q.data.data;
 
   const confirmWithdraw = (c: ExpenseClaim) =>

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, View } from 'react-native';
+import { Alert, Linking, Pressable, Switch, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { api, openPdf, type Envelope } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useAppearance, type AppearancePref } from '@/lib/appearance';
+import { authenticate, biometricAvailable, biometricEnabledFor, setBiometricFor } from '@/lib/biometric';
 import { getPushStatus, registerForPush, type PushStatus } from '@/lib/push';
 import { useUploads } from '@/lib/uploads';
 import { fieldError, useApiMutation, useLookups } from '@/lib/hooks';
@@ -79,12 +80,33 @@ interface MySession { id: number; app: 'web' | 'technician' | 'manager'; device:
 
 /** Password and the phones / browsers this account is signed in on. */
 function SecurityCard() {
+  const { user } = useAuth();
   const [changing, setChanging] = useState(false);
+  const [bio, setBio] = useState<{ available: boolean; on: boolean } | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([biometricAvailable(), biometricEnabledFor(user.id)]).then(([available, on]) => setBio({ available, on }));
+  }, [user]);
+  const toggleBio = async (on: boolean) => {
+    if (!user) return;
+    if (on && !(await authenticate('Confirm it’s you'))) return;
+    await setBiometricFor(on ? user.id : null);
+    setBio((b) => (b ? { ...b, on } : b));
+    toast.success(on ? 'You can now open the app with your fingerprint or face.' : 'Fingerprint and face sign-in turned off.');
+  };
   const q = useQuery({ queryKey: ['my-sessions'], queryFn: () => api.get<Envelope<MySession[]>>('/auth/sessions').then((r) => r.data) });
   const others = useApiMutation(() => api.post<Envelope<{ signed_out: number }>>('/auth/sessions/sign-out-others'), { invalidate: [['my-sessions']], success: (r) => (r as { message?: string }).message ?? 'Done' });
   const list = q.data ?? [];
   return (
     <Card title="Security" padded={false}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+        <Icon name="finger-print" color={colors.brand} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.text, fontWeight: '600' }}>Sign in with fingerprint or face</Text>
+          <Muted style={{ fontSize: 12 }}>{bio && !bio.available ? 'Set up a fingerprint or face unlock in your phone’s settings first.' : 'No password needed to open the app on this phone.'}</Muted>
+        </View>
+        <Switch accessibilityLabel="Sign in with fingerprint or face" value={!!bio?.on} disabled={!bio?.available} onValueChange={toggleBio} trackColor={{ true: colors.brand }} thumbColor={colors.onBrand} />
+      </View>
       {list.map((s, i) => (
         <View key={s.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
           <Icon name={s.app === 'web' ? 'desktop-outline' : 'phone-portrait-outline'} color={colors.muted} />
@@ -257,7 +279,7 @@ function Leave() {
   return (
     <Card title="Leave" right={<Button title="Apply" size="sm" icon="add" onPress={() => setApplying(true)} />}>
       {!d ? (
-        <Loading />
+        q.error ? <Muted>{q.error.message}</Muted> : <Loading />
       ) : (
         <View style={{ gap: 12 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -384,7 +406,7 @@ function Payslips() {
   return (
     <Card title="Payslips" padded={false}>
       {!q.data ? (
-        <Loading />
+        q.error ? <Muted>{q.error.message}</Muted> : <Loading />
       ) : !q.data.length ? (
         <Muted style={{ padding: 16 }}>Payslips appear here once payroll for a month is finalized.</Muted>
       ) : (

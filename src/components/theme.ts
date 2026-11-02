@@ -10,6 +10,8 @@ const light = {
   brandSoft: '#EFF4FF',
   /** Text and icons on brand, success and danger fills. */
   onBrand: '#FFFFFF',
+  /** Main button fill: stays dark enough for white text in both schemes. */
+  primaryBg: '#2563EB',
   accent: '#10B981',
   accentSoft: '#E7F8F1',
   text: '#0F172A',
@@ -48,6 +50,7 @@ const dark: Palette = {
   brandDark: '#3B82F6',
   brandSoft: '#172A4A',
   onBrand: '#FFFFFF',
+  primaryBg: '#2563EB',
   accent: '#34D399',
   accentSoft: '#0E2E25',
   text: '#E5E9F0',

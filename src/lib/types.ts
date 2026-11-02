@@ -59,8 +59,9 @@ export interface CustomerProduct {
   under_warranty?: boolean;
   /** The model as typed, e.g. from the unit's label. */
   model_no?: string | null;
-  product?: { id: number; model_name: string; brand?: Named | null } | null;
+  product?: { id: number; model_name: string; brand?: Named | null; category?: Named | null } | null;
   brand?: Named | null;
+  category?: Named | null;
   dealer?: Named | null;
 }
 
@@ -70,7 +71,29 @@ export interface Usage {
   quantity: number;
   unit_price: number;
   total_price: number;
+  /** Came from the parts allocated to the technician, not the branch's shelf. */
+  from_technician_stock?: boolean;
+  created_at?: string;
   item?: { id: number; code: string; name: string; unit_of_measure: string };
+}
+
+/** A part allocated to this technician. */
+export interface MyPart {
+  id: number;
+  item_id: number;
+  quantity: number;
+  item?: { id: number; code: string; name: string; type: 'spare' | 'consumable'; unit_of_measure: string; unit_price: number };
+}
+
+export interface MyPartMove {
+  id: number;
+  type: 'allocated' | 'returned' | 'used' | 'usage_undone';
+  quantity: number;
+  balance_after: number;
+  remarks: string | null;
+  created_at: string;
+  item?: { id: number; code: string; name: string; unit_of_measure: string };
+  job?: { id: number; crm_call_id: string } | null;
 }
 
 export interface JobImage {
@@ -132,6 +155,7 @@ export interface Payment {
   reference_no: string | null;
   status: string;
   paid_at: string | null;
+  collector?: Named | null;
 }
 
 export interface Invoice {
@@ -142,6 +166,13 @@ export interface Invoice {
   paid_amount: number;
   balance_amount: number;
   payment_status: 'unpaid' | 'partial' | 'paid';
+  generated_at?: string | null;
+  is_gst?: boolean;
+  taxable_amount?: number;
+  cgst_amount?: number;
+  sgst_amount?: number;
+  igst_amount?: number;
+  payments?: Payment[];
   upi?: { vpa: string; payee_name: string; amount: number; link: string } | null;
 }
 
@@ -182,11 +213,15 @@ export interface Job {
   complaint_details: string | null;
   /** Collected from the customer by the technician. */
   customer_satisfaction_code?: string | null;
+  /** Set by the office on the job, or from the product's category. */
+  product_category?: string | null;
   /** Which part a part-pending job is waiting for. */
   part_pending_note?: string | null;
   /** Why the technician asked to cancel, while the office decides. */
   cancel_reason?: string | null;
   previous_services?: PreviousService[];
+  /** Status changes and the updates added to the job (status "note"), oldest first. */
+  status_history?: { id: number; status: string; remarks: string | null; changed_at: string; user?: Named | null }[];
   customer?: Customer;
   customer_product?: CustomerProduct | null;
   complaint_type?: Named | null;
@@ -220,6 +255,14 @@ export interface Lookups {
   model_suggestions?: { model_no: string; brand_id: number | null }[];
   complaint_types: Named[];
   action_taken_options: Named[];
+  categories?: Named[];
+  brands?: Named[];
+  dealers?: Named[];
+  billing?: { gst_registered: boolean; job_bills?: 'gst' | 'non_gst' | null };
+  /** Photo sections on a visit, set by the company under Settings. */
+  photo_types?: { key: string; label: string }[];
+  /** Names of sections since removed, for the photos already taken under them. */
+  photo_labels?: Record<string, string>;
   upi_accounts?: UpiAccount[];
   expense_categories?: Named[];
   leave_types?: { id: number; name: string; code: string | null; annual_quota: number; is_paid: boolean }[];

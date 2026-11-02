@@ -7,12 +7,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, focusManager, onlineManager } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { PERSIST_MAX_AGE, queryPersister, shouldPersistQuery } from '@/lib/queryCache';
-import * as Network from 'expo-network';
 import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { api, ApiError, type Envelope } from '@/lib/api';
+import { getConnectivity, initConnectivity, subscribeConnectivity } from '@/lib/connectivity';
 import { routeForNotification, syncPushToken } from '@/lib/push';
 import { initUploads, onUploaded, takeRememberedCapture } from '@/lib/uploads';
 import { queuePhoto } from '@/lib/photos';
@@ -32,14 +32,14 @@ const queryClient = new QueryClient({
       retry: (count, error) => count < 2 && (!(error instanceof ApiError) || error.status === 0 || error.status >= 500),
       retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
     },
+    // Saving always tries and reports the result: never a spinner that waits, then saves by itself much later.
+    mutations: { networkMode: 'always' },
   },
 });
 
-// Pause queries while offline and refetch on reconnect / when the app comes back to the foreground.
-onlineManager.setEventListener((setOnline) => {
-  const sub = Network.addNetworkStateListener((s) => setOnline(s.isConnected !== false));
-  return () => sub.remove();
-});
+// Pause queries while the server is out of reach and refetch once it's back, or when the app returns to the foreground.
+initConnectivity();
+onlineManager.setEventListener((setOnline) => subscribeConnectivity(() => setOnline(!getConnectivity().offline)));
 focusManager.setEventListener((setFocused) => {
   const sub = AppState.addEventListener('change', (s) => setFocused(s === 'active'));
   return () => sub.remove();

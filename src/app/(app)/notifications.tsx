@@ -6,7 +6,7 @@ import { api, type Paginated } from '@/lib/api';
 import { relative } from '@/lib/format';
 import { routeForNotification } from '@/lib/push';
 import type { NotificationItem } from '@/lib/types';
-import { Button, Empty, Loading, Muted } from '@/components/ui';
+import { Button, Empty, ErrorView, Loading, Muted } from '@/components/ui';
 import { colors } from '@/components/theme';
 
 export default function Notifications() {
@@ -19,7 +19,8 @@ export default function Notifications() {
     await api.post('/notifications/read', ids ? { ids } : {}).catch(() => undefined);
     qc.invalidateQueries({ queryKey: ['notifications'] });
   };
-  if (q.isLoading) return <Loading />;
+  if (q.isPending) return <Loading />;
+  if (!q.data) return <ErrorView error={q.error} onRetry={q.refetch} />;
   return (
     <FlatList
       data={q.data?.data ?? []}

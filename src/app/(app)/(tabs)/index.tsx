@@ -35,8 +35,8 @@ export default function Home() {
     }
   };
 
-  if (q.isLoading) return <Loading />;
-  if (q.error || !d) return <ErrorView error={q.error} onRetry={q.refetch} />;
+  if (q.isPending) return <Loading />;
+  if (!d) return <ErrorView error={q.error} onRetry={q.refetch} />;
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning,' : hour < 17 ? 'Good afternoon,' : 'Good evening,';

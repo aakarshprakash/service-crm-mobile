@@ -5,8 +5,8 @@ import {
 import { FONT, Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useNetworkState } from 'expo-network';
 import { ApiError } from '@/lib/api';
+import { useConnectivity } from '@/lib/connectivity';
 import { label } from '@/lib/format';
 import { colors, onSchemeChange, radius, shadow, statusTone } from './theme';
 
@@ -55,7 +55,7 @@ export function Button({
   title, onPress, variant = 'primary', icon, loading, disabled, size = 'md', style,
 }: { title: string; onPress?: () => void; variant?: Variant; icon?: IconName; loading?: boolean; disabled?: boolean; size?: 'sm' | 'md' | 'lg'; style?: StyleProp<ViewStyle> }) {
   const v = {
-    primary: { bg: colors.brand, fg: colors.onBrand, border: colors.brand },
+    primary: { bg: colors.primaryBg, fg: colors.onBrand, border: colors.primaryBg },
     secondary: { bg: colors.card, fg: colors.text, border: colors.border },
     success: { bg: colors.successBg, fg: colors.onBrand, border: colors.successBg },
     danger: { bg: colors.dangerBg, fg: colors.onBrand, border: colors.dangerBg },
@@ -109,6 +109,9 @@ export function Input(props: TextInputProps & { invalid?: boolean }) {
 
 /** Row of mutually exclusive choices (status filter, payment method, service type…). */
 export function Segmented<T extends string>({ value, onChange, options, columns }: { value: T; onChange: (v: T) => void; options: { value: T; label: string; icon?: IconName; count?: number }[]; columns?: number }) {
+  const cell = columns ? { flexBasis: `${100 / columns - 2}%` as const, flexGrow: 1 } : null;
+  // Empty cells fill a short last row, so its buttons stay the same width as the rows above.
+  const spare = columns ? (columns - (options.length % columns)) % columns : 0;
   return (
     <View style={[styles.segmented, columns ? { flexWrap: 'wrap' } : null]}>
       {options.map((o) => {
@@ -119,7 +122,7 @@ export function Segmented<T extends string>({ value, onChange, options, columns 
             accessibilityRole="button"
             accessibilityState={{ selected: on }}
             onPress={() => onChange(o.value)}
-            style={[styles.segment, columns ? { flexBasis: `${100 / columns - 2}%`, flexGrow: 0 } : null, on && styles.segmentOn]}
+            style={[styles.segment, cell, on && styles.segmentOn]}
           >
             {o.icon && <Ionicons name={o.icon} size={18} color={on ? colors.brand : colors.muted} />}
             <Text style={[styles.segmentText, on && { color: colors.brand }]} numberOfLines={1}>
@@ -129,6 +132,9 @@ export function Segmented<T extends string>({ value, onChange, options, columns 
           </Pressable>
         );
       })}
+      {Array.from({ length: spare }, (_, i) => (
+        <View key={i} style={cell} />
+      ))}
     </View>
   );
 }
@@ -151,6 +157,56 @@ export function Row({ k, v, strong, vStyle }: { k: string; v: ReactNode; strong?
   );
 }
 
+/** A message that needs attention, with room for an action underneath. */
+export function Banner({ tone = 'warn', icon, title, message, children }: { tone?: 'warn' | 'danger' | 'info'; icon?: IconName; title: string; message?: string | null; children?: ReactNode }) {
+  const t = { warn: { fg: colors.amber, bg: colors.amberSoft, line: colors.amberBorder }, danger: { fg: colors.red, bg: colors.redSoft, line: colors.red + '40' }, info: { fg: colors.brand, bg: colors.brandSoft, line: colors.brand + '40' } }[tone];
+  return (
+    <View style={{ backgroundColor: t.bg, borderColor: t.line, borderWidth: 1, borderRadius: radius.md, padding: 14, gap: 10 }}>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        {icon && <Ionicons name={icon} size={20} color={t.fg} />}
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={{ color: t.fg, fontWeight: '700' }}>{title}</Text>
+          {message ? <Text style={{ color: t.fg, fontSize: 13 }}>{message}</Text> : null}
+        </View>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+const FLOW = [{ key: 'job', label: 'Job' }, { key: 'check', label: 'Check' }, { key: 'service', label: 'Service' }, { key: 'complete', label: 'Complete' }] as const;
+
+/** Where the technician is on a job: Job → Check → Service → Complete. */
+export function FlowSteps({ current }: { current: (typeof FLOW)[number]['key'] }) {
+  const at = FLOW.findIndex((s) => s.key === current);
+  return (
+    <View accessibilityRole="progressbar" accessibilityLabel={`Step ${at + 1} of ${FLOW.length}: ${FLOW[at]?.label}`} style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+      {FLOW.map((s, i) => {
+        const done = i < at;
+        const on = i === at;
+        return (
+          <View key={s.key} style={{ flex: 1, alignItems: 'center', gap: 4 }}>
+            <View style={{ alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ flex: 1, height: 2, backgroundColor: i === 0 ? 'transparent' : i <= at ? colors.brand : colors.border }} />
+              <View style={{ width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: done || on ? colors.brand : colors.chip }}>
+                {done ? <Ionicons name="checkmark" size={14} color={colors.onBrand} /> : <Text style={{ fontSize: 12, fontWeight: '700', color: on ? colors.onBrand : colors.muted }}>{i + 1}</Text>}
+              </View>
+              <View style={{ flex: 1, height: 2, backgroundColor: i === FLOW.length - 1 ? 'transparent' : i < at ? colors.brand : colors.border }} />
+            </View>
+            <Text style={{ fontSize: 12, fontWeight: on ? '700' : '500', color: on ? colors.text : colors.muted }}>{s.label}</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+/** The screen's next step, always in reach at the bottom instead of below a long scroll. */
+export function BottomBar({ children }: { children: ReactNode }) {
+  const insets = useSafeAreaInsets();
+  return <View style={{ flexDirection: 'row', gap: 8, padding: 12, paddingBottom: insets.bottom + 12, backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.border }}>{children}</View>;
+}
+
 export function Muted({ children, style }: { children: ReactNode; style?: StyleProp<TextStyle> }) {
   return <Text style={[{ color: colors.muted, fontSize: 13 }, style]}>{children}</Text>;
 }
@@ -160,12 +216,11 @@ export function H1({ children }: { children: ReactNode }) {
 }
 
 export function Loading() {
-  const net = useNetworkState();
-  const offline = net.isConnected === false || net.isInternetReachable === false;
+  const { offline, noNetwork } = useConnectivity();
   return (
     <View style={{ padding: 40, alignItems: 'center', gap: 12 }}>
       <ActivityIndicator size="large" color={colors.brand} />
-      {offline && <Text style={{ color: colors.muted, textAlign: 'center' }}>No internet connection. This loads automatically when you’re back online.</Text>}
+      {offline && <Text style={{ color: colors.muted, textAlign: 'center' }}>{noNetwork ? 'No internet connection.' : 'Can’t reach the server.'} This loads automatically when you’re back online.</Text>}
     </View>
   );
 }
@@ -182,9 +237,11 @@ export function Empty({ icon = 'file-tray-outline', title, message }: { icon?: I
 
 export function ErrorView({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const msg = error instanceof ApiError || error instanceof Error ? error.message : 'Something went wrong.';
+  // Only a request that never got an answer looks like a connection problem.
+  const noAnswer = error instanceof ApiError && error.status === 0;
   return (
     <View style={{ alignItems: 'center', padding: 32, gap: 12 }}>
-      <Ionicons name="cloud-offline-outline" size={36} color={colors.faint} />
+      <Ionicons name={noAnswer ? 'cloud-offline-outline' : 'alert-circle-outline'} size={36} color={colors.faint} />
       <Text style={{ color: colors.text, textAlign: 'center' }}>{msg}</Text>
       {onRetry && <Button title="Try again" variant="secondary" size="sm" onPress={onRetry} />}
     </View>

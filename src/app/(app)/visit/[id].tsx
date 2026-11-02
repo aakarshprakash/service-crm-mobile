@@ -8,15 +8,17 @@ import { api, ApiError, type Envelope, type Paginated } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { queuePhoto } from '@/lib/photos';
 import { discardUpload, enqueueSignature, forgetCapture, rememberCapture, retryAll, retryUpload, useUploads, waitForVisit, type UploadItem } from '@/lib/uploads';
-import { fieldError, useApiMutation, useLookups, useNow } from '@/lib/hooks';
-import { dateTime, label, METHOD_LABEL, money, qty, toMajor, toMinor } from '@/lib/format';
+import { fieldError, isGone, useApiMutation, useLookups, useMyParts, useNow } from '@/lib/hooks';
+import { label, METHOD_LABEL, money, qty, toMajor, toMinor } from '@/lib/format';
 import { tryPosition } from '@/lib/location';
 import type { InventoryItem, Invoice, Job, Payment, Visit } from '@/lib/types';
 import { toast } from '@/components/toast';
-import { Badge, Button, Card, Empty, ErrorView, Field, Icon, Input, Loading, Muted, Row, Screen, Segmented, Sheet, Stepper } from '@/components/ui';
+import { Badge, Banner, Button, Card, Empty, ErrorView, Field, FlowSteps, Icon, Input, Loading, Muted, Row, Screen, Segmented, Sheet, Stepper } from '@/components/ui';
+import { BillSummary } from '@/components/BillSummary';
 import { UpiSheet } from '@/components/UpiSheet';
 import { SignaturePad } from '@/components/SignaturePad';
-import { CallDetailsFields, callPayload, initialCallForm, type CallForm } from '@/components/CallDetails';
+import { ComplaintFields, ProductFields, callPayload, initialCallForm, type CallForm } from '@/components/CallDetails';
+import { CustomerLocationCard } from '@/components/CustomerLocation';
 import { VoiceNotes } from '@/components/VoiceNotes';
 import { colors } from '@/components/theme';
 
@@ -30,8 +32,8 @@ export default function VisitScreen() {
   const [done, setDone] = useState<{ invoice: Invoice | null; payment: Payment | null; status: string } | null>(null);
   const queuedPhotos = useUploads(Number(id)).filter((u) => u.kind === 'image').length;
 
-  if (job.isLoading || visit.isLoading) return <Loading />;
-  if (job.error || visit.error || !job.data || !visit.data) return <ErrorView error={job.error ?? visit.error} onRetry={() => { job.refetch(); visit.refetch(); }} />;
+  if (job.isPending || visit.isPending) return <Loading />;
+  if (!job.data || !visit.data || isGone(job.error) || isGone(visit.error)) return <ErrorView error={job.error ?? visit.error} onRetry={() => { job.refetch(); visit.refetch(); }} />;
   if (done) return <Completed result={done} />;
   if (visit.data.status !== 'in_progress') {
     return (
@@ -85,7 +87,7 @@ function VisitTimer({ start }: { start: string }) {
   );
 }
 
-/** Correct the call details while on site (complaint, address, serial numbers…). */
+/** Correct the complaint and product while on site. The customer's own details are the office's to change. */
 function CallTab({ job, visit }: { job: Job; visit: Visit }) {
   const c = job.customer;
   const [form, setForm] = useState(() => initialCallForm(job));
@@ -93,60 +95,45 @@ function CallTab({ job, visit }: { job: Job; visit: Visit }) {
   const m = useApiMutation(() => api.patch(`/visits/${visit.id}`, callPayload(form)), {
     invalidate: [['tech-job', String(job.id)]],
     toastValidation: false,
+    success: 'Saved',
   });
   const e = (n: string) => fieldError(m.error, n);
-  const qc = useQueryClient();
-  const [locating, setLocating] = useState(false);
-  const saveLocation = async () => {
-    setLocating(true);
-    try {
-      const pos = await tryPosition(15000);
-      if (!pos) {
-        toast.error('Couldn’t get your location. Turn on GPS and try again.');
-        return;
-      }
-      await api.post(`/visits/${visit.id}/customer-location`, pos);
-      toast.success('Customer location saved');
-      qc.invalidateQueries({ queryKey: ['tech-job', String(job.id)] });
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setLocating(false);
-    }
-  };
-  const source = c?.location_source ? { customer: 'shared by the customer', office: 'set by the office', technician: 'saved on site' }[c.location_source] : undefined;
 
   return (
     <Screen>
+      <FlowSteps current="service" />
       <Card>
         <Text style={{ fontWeight: '700', color: colors.text }}>{c?.name}</Text>
         <Muted>{c?.phone}</Muted>
+        {!!c?.address && <Muted>{[c.address, c.city, c.pincode].filter(Boolean).join(', ')}</Muted>}
       </Card>
-      <CallDetailsFields form={form} set={set} error={e} hasProduct={!!job.customer_product} brandId={job.customer_product?.brand?.id ?? job.customer_product?.product?.brand?.id} scanHint="Scanned. Tap “Save call details” to keep it." />
-      <Button title="Save call details" loading={m.isPending} onPress={() => m.mutate(undefined)} />
-
-      <Card title="Customer location">
-        <Muted>
-          {c?.lat != null ? `Location ${source ?? 'saved'}${c.location_updated_at ? ` · ${dateTime(c.location_updated_at)}` : ''}.` : 'No location saved for this customer yet.'}
-        </Muted>
-        <Button title="I'm at the customer's place: save location" icon="location-outline" variant="secondary" size="sm" style={{ marginTop: 10 }} loading={locating} onPress={saveLocation} />
-      </Card>
+      <CustomerLocationCard job={job} />
+      <ComplaintFields form={form} set={set} error={e} />
+      <ProductFields job={job} form={form} set={set} error={e} scanHint="Scanned. Tap “Save details” to keep it." />
+      <Button title="Save details" loading={m.isPending} onPress={() => m.mutate(undefined)} />
     </Screen>
   );
 }
 
-const PHOTO_TYPES = [
-  { type: 'bill', label: 'Bill' },
-  { type: 'serial', label: 'Serial number' },
-  { type: 'complaint_part', label: 'Faulty part' },
-  { type: 'new_part', label: 'New part' },
-  { type: 'other', label: 'Other' },
-] as const;
+/** Until the company's own list has loaded, and on servers that don't send one. */
+const DEFAULT_PHOTO_TYPES = [
+  { key: 'bill', label: 'Bill' },
+  { key: 'serial', label: 'Serial number' },
+  { key: 'complaint_part', label: 'Faulty part' },
+  { key: 'new_part', label: 'New part' },
+  { key: 'other', label: 'Other' },
+];
 
 function PhotosTab({ visit }: { visit: Visit }) {
   const qc = useQueryClient();
   const pending = useUploads(visit.id).filter((u) => u.kind === 'image');
   const [preparing, setPreparing] = useState<string | null>(null);
+  const lookupsQuery = useLookups();
+  const lookups = lookupsQuery.data;
+  const configured = lookups?.photo_types?.length ? lookups.photo_types : DEFAULT_PHOTO_TYPES;
+  // Photos in a section removed since they were taken stay visible, so they can still be retried or deleted.
+  const orphans = [...new Set([...(visit.images ?? []).map((i) => i.type), ...pending.map((u) => u.type)])].filter((t) => t !== 'signature' && !configured.some((s) => s.key === t));
+  const sections = [...configured.map((s) => ({ ...s, removed: false })), ...orphans.map((key) => ({ key, label: lookups?.photo_labels?.[key] ?? label(key), removed: true }))];
 
   const take = async (type: string, fromLibrary: boolean) => {
     const perm = fromLibrary ? await ImagePicker.requestMediaLibraryPermissionsAsync() : await ImagePicker.requestCameraPermissionsAsync();
@@ -193,14 +180,14 @@ function PhotosTab({ visit }: { visit: Visit }) {
     ]);
 
   return (
-    <Screen refreshing={false} onRefresh={() => { retryAll(); qc.invalidateQueries({ queryKey: ['visit', String(visit.id)] }); }}>
+    <Screen refreshing={false} onRefresh={() => { retryAll(); lookupsQuery.refetch(); qc.invalidateQueries({ queryKey: ['visit', String(visit.id)] }); }}>
       <VoiceNotes visit={visit} />
-      {PHOTO_TYPES.map((t) => {
-        const photos = visit.images?.filter((i) => i.type === t.type) ?? [];
-        const queued = pending.filter((u) => u.type === t.type);
+      {sections.map((t) => {
+        const photos = visit.images?.filter((i) => i.type === t.key) ?? [];
+        const queued = pending.filter((u) => u.type === t.key);
         const count = photos.length + queued.length;
         return (
-          <Card key={t.type} title={t.label} right={<Muted>{count || ''}</Muted>}>
+          <Card key={t.key} title={t.label} right={<Muted>{count || ''}</Muted>}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {photos.map((p) => (
                 <Pressable key={p.id} onLongPress={() => remove(p.id)} accessibilityHint="Long press to delete">
@@ -211,10 +198,12 @@ function PhotosTab({ visit }: { visit: Visit }) {
                 <PendingThumb key={u.id} item={u} />
               ))}
             </View>
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: count ? 10 : 0 }}>
-              <Button title="Camera" icon="camera-outline" size="sm" style={{ flex: 1 }} loading={preparing === t.type} disabled={!!preparing} onPress={() => take(t.type, false)} />
-              <Button title="Gallery" icon="images-outline" size="sm" variant="secondary" style={{ flex: 1 }} disabled={!!preparing} onPress={() => take(t.type, true)} />
-            </View>
+            {!t.removed && (
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: count ? 10 : 0 }}>
+                <Button title="Camera" icon="camera-outline" size="sm" style={{ flex: 1 }} loading={preparing === t.key} disabled={!!preparing} onPress={() => take(t.key, false)} />
+                <Button title="Gallery" icon="images-outline" size="sm" variant="secondary" style={{ flex: 1 }} disabled={!!preparing} onPress={() => take(t.key, true)} />
+              </View>
+            )}
           </Card>
         );
       })}
@@ -263,8 +252,10 @@ function PartsTab({ visit }: { visit: Visit }) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [picked, setPicked] = useState<InventoryItem | null>(null);
+  // From the technician's own parts, or a search of the branch's stock.
+  const [picked, setPicked] = useState<{ item: Pick<InventoryItem, 'id' | 'code' | 'name' | 'unit_of_measure' | 'unit_price'>; source: 'technician' | 'branch'; available: number } | null>(null);
   const [quantity, setQuantity] = useState('1');
+  const mine = useMyParts();
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 300);
     return () => clearTimeout(t);
@@ -274,8 +265,11 @@ function PartsTab({ visit }: { visit: Visit }) {
     queryFn: () => api.get<Paginated<InventoryItem>>('/inventory/items', { search: debounced, active: 1, per_page: 10 }),
     enabled: debounced.length >= 2,
   });
-  const refresh = () => qc.invalidateQueries({ queryKey: ['visit', String(visit.id)] });
-  const add = useApiMutation(() => api.post(`/visits/${visit.id}/spares`, { item_id: picked!.id, quantity: Number(quantity) }), {
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['visit', String(visit.id)] });
+    qc.invalidateQueries({ queryKey: ['my-parts'] });
+  };
+  const add = useApiMutation(() => api.post(`/visits/${visit.id}/spares`, { item_id: picked!.item.id, quantity: Number(quantity), source: picked!.source }), {
     toastValidation: true,
     onSuccess: () => {
       setPicked(null);
@@ -299,6 +293,7 @@ function PartsTab({ visit }: { visit: Visit }) {
                 <Text style={{ fontWeight: '600', color: colors.text }}>{u.item?.name}</Text>
                 <Muted>
                   {u.item?.code} · {qty(u.quantity)} {u.item?.unit_of_measure} × {money(u.unit_price)}
+                  {u.from_technician_stock ? ' · your parts' : ''}
                 </Muted>
               </View>
               <Text style={{ fontWeight: '600', color: colors.text }}>{money(u.total_price)}</Text>
@@ -310,32 +305,46 @@ function PartsTab({ visit }: { visit: Visit }) {
         )}
       </Card>
 
-      <Field label="Add a part">
+      {!!mine.data?.stock.length && (
+        <Card title="Your parts" padded={false}>
+          {mine.data.stock.map((p, i) => (
+            <Pressable key={p.id} onPress={() => { setSearch(''); setPicked({ item: p.item!, source: 'technician', available: p.quantity }); setQuantity('1'); }} style={({ pressed }) => ({ flexDirection: 'row', justifyContent: 'space-between', gap: 10, padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, backgroundColor: pressed ? colors.bg : 'transparent' })}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '600', color: colors.text }}>{p.item?.name}</Text>
+                <Muted>{p.item?.code} · {money(p.item?.unit_price)}</Muted>
+              </View>
+              <Text style={{ fontWeight: '700', color: colors.brand }}>{qty(p.quantity)} {p.item?.unit_of_measure}</Text>
+            </Pressable>
+          ))}
+        </Card>
+      )}
+
+      <Field label="Or take from branch stock">
         <Input value={search} onChangeText={(v) => { setSearch(v); setPicked(null); }} placeholder="Search by code or name" />
       </Field>
       {picked ? (
         <Card>
-          <Text style={{ fontWeight: '700', color: colors.text }}>{picked.name}</Text>
+          <Text style={{ fontWeight: '700', color: colors.text }}>{picked.item.name}</Text>
           <Muted>
-            {picked.code} · {money(picked.unit_price)} · {qty(picked.stock_total ?? 0)} {picked.unit_of_measure} at your branch
+            {picked.item.code} · {money(picked.item.unit_price)} · {qty(picked.available)} {picked.item.unit_of_measure} {picked.source === 'technician' ? 'with you' : 'at your branch'}
           </Muted>
           <View style={{ gap: 10, marginTop: 12 }}>
-            <Field label={`Quantity (${picked.unit_of_measure})`} error={fieldError(add.error, 'quantity')}>
+            <Field label={`Quantity (${picked.item.unit_of_measure})`} error={fieldError(add.error, 'quantity')}>
               <Stepper
                 value={quantity}
                 onChange={setQuantity}
-                step={picked.unit_of_measure === 'nos' ? 1 : 0.5}
-                decimals={picked.unit_of_measure === 'nos' ? 0 : 3}
-                max={Math.max(Number(picked.stock_total ?? 0), picked.unit_of_measure === 'nos' ? 1 : 0.5)}
+                step={picked.item.unit_of_measure === 'nos' ? 1 : 0.5}
+                decimals={picked.item.unit_of_measure === 'nos' ? 0 : 3}
+                max={Math.max(picked.available, picked.item.unit_of_measure === 'nos' ? 1 : 0.5)}
               />
             </Field>
-            <Button title={`Add ${quantity || 0} ${picked.unit_of_measure}`} icon="add" loading={add.isPending} disabled={!Number(quantity)} onPress={() => add.mutate(undefined)} />
+            <Button title={`Add ${quantity || 0} ${picked.item.unit_of_measure}`} icon="add" loading={add.isPending} disabled={!Number(quantity)} onPress={() => add.mutate(undefined)} />
           </View>
         </Card>
       ) : (
         debounced.length >= 2 && (
           <Card padded={false}>
-            {items.isLoading ? (
+            {items.isPending ? (
               <Loading />
             ) : !items.data?.data.length ? (
               <Muted style={{ padding: 16 }}>No parts match “{debounced}”.</Muted>
@@ -343,7 +352,7 @@ function PartsTab({ visit }: { visit: Visit }) {
               items.data.data.map((it, i) => {
                 const stock = Number(it.stock_total ?? 0);
                 return (
-                  <Pressable key={it.id} disabled={stock <= 0} onPress={() => { Keyboard.dismiss(); setPicked(it); }} style={{ padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, opacity: stock > 0 ? 1 : 0.5, flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
+                  <Pressable key={it.id} disabled={stock <= 0} onPress={() => { Keyboard.dismiss(); setPicked({ item: it, source: 'branch', available: stock }); }} style={{ padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, opacity: stock > 0 ? 1 : 0.5, flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontWeight: '600', color: colors.text }}>{it.name}</Text>
                       <Muted>
@@ -378,6 +387,13 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
     amount_collected: '',
     payment_reference: '',
   });
+  const billing = lookups?.billing;
+  const [isGst, setIsGst] = useState<boolean | null>(null);
+  const gstBill = isGst ?? billing?.job_bills !== 'non_gst';
+  // Chosen when the bill is first made. After that it may already be with the customer, so accounts change it.
+  const chooseBillType = !!billing?.gst_registered && !job.invoice;
+  const cancelling = form.status === 'cancelled';
+  const partsOnVisit = visit.inventory_usage?.length ?? 0;
   const [pickAction, setPickAction] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [signing, setSigning] = useState(false);
@@ -388,8 +404,8 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
   const savedSignature = visit.images?.find((i) => i.type === 'signature');
   const hasSignature = !!queuedSignature || !!savedSignature;
   const [waitingUploads, setWaitingUploads] = useState(false);
-  const total = toMinor(form.labour_charge) + toMinor(form.spare_charge);
-  const due = total + previousBalance;
+  const total = cancelling ? 0 : toMinor(form.labour_charge) + toMinor(form.spare_charge);
+  const due = cancelling ? 0 : total + previousBalance;
   const collects = ['cash', 'upi', 'cheque', 'bank_transfer'].includes(form.payment_method);
   const collected = form.amount_collected === '' ? due : toMinor(form.amount_collected);
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -412,14 +428,15 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
       const pos = await tryPosition(5000);
       return api.post<Envelope<{ invoice: Invoice | null; payment: Payment | null }>>(`/visits/${visit.id}/complete`, {
         status: form.status,
-        action_taken_id: form.action_taken_id ? Number(form.action_taken_id) : null,
+        action_taken_id: !cancelling && form.action_taken_id ? Number(form.action_taken_id) : null,
         service_summary: form.service_summary,
-        customer_satisfaction_code: form.customer_satisfaction_code.trim() || null,
-        labour_charge: toMinor(form.labour_charge),
-        spare_charge: toMinor(form.spare_charge),
-        payment_method: total > 0 || collected > 0 ? form.payment_method : null,
-        amount_collected: collects ? collected : 0,
-        payment_reference: form.payment_reference || null,
+        customer_satisfaction_code: cancelling ? null : form.customer_satisfaction_code.trim() || null,
+        labour_charge: total === 0 ? 0 : toMinor(form.labour_charge),
+        spare_charge: total === 0 ? 0 : toMinor(form.spare_charge),
+        payment_method: !cancelling && (total > 0 || collected > 0) ? form.payment_method : null,
+        amount_collected: !cancelling && collects ? collected : 0,
+        payment_reference: cancelling ? null : form.payment_reference || null,
+        is_gst: !cancelling && chooseBillType ? gstBill : null,
         ...(pos ?? {}),
       });
     },
@@ -431,6 +448,7 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
         qc.invalidateQueries({ queryKey: ['tech-dashboard'] });
         qc.invalidateQueries({ queryKey: ['tech-jobs'] });
         qc.invalidateQueries({ queryKey: ['my-cash'] });
+        qc.invalidateQueries({ queryKey: ['my-parts'] });
         onDone({ invoice: r.data.invoice, payment: r.data.payment, status: form.status });
       },
     },
@@ -460,12 +478,19 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
       <Field label="Visit result" required>
         <Segmented columns={2} value={form.status} onChange={(v) => set('status', v)} options={[{ value: 'completed', label: 'Completed' }, { value: 'pending', label: 'Pending' }, { value: 'part_pending', label: 'Part pending' }, { value: 'cancelled', label: 'Cancel job' }]} />
       </Field>
-      <Field label="Action taken" required={form.status === 'completed'} error={e('action_taken_id')}>
-        <Pressable onPress={() => setPickAction(true)} style={{ borderWidth: 1, borderColor: e('action_taken_id') ? colors.red : colors.inputBorder, borderRadius: 10, minHeight: 46, paddingHorizontal: 12, justifyContent: 'center', backgroundColor: '#fff' }}>
-          <Text style={{ color: actionName ? colors.text : colors.faint, fontSize: 16 }}>{actionName ?? 'Select what you did…'}</Text>
-        </Pressable>
-      </Field>
-      <Field label={form.status === 'cancelled' ? 'Reason for cancelling' : 'Service summary'} required error={e('service_summary')} hint={form.status === 'part_pending' ? 'Write which part is needed, so the office can order it.' : undefined}>
+      {cancelling && (
+        <Banner tone="danger" icon="hourglass-outline" title="The office must approve this" message="The job stays open until they decide. Nothing is billed on this visit.">
+          {partsOnVisit > 0 && <Text style={{ color: colors.red, fontWeight: '700' }}>Remove the {partsOnVisit > 1 ? `${partsOnVisit} parts` : 'part'} on the Parts tab first, so {partsOnVisit > 1 ? 'they go' : 'it goes'} back to stock.</Text>}
+        </Banner>
+      )}
+      {!cancelling && (
+        <Field label="Action taken" required={form.status === 'completed'} error={e('action_taken_id')}>
+          <Pressable onPress={() => setPickAction(true)} style={{ borderWidth: 1, borderColor: e('action_taken_id') ? colors.red : colors.inputBorder, borderRadius: 10, minHeight: 46, paddingHorizontal: 12, justifyContent: 'center', backgroundColor: colors.card }}>
+            <Text style={{ color: actionName ? colors.text : colors.faint, fontSize: 16 }}>{actionName ?? 'Select what you did…'}</Text>
+          </Pressable>
+        </Field>
+      )}
+      <Field label={cancelling ? 'Reason for cancelling' : 'Service summary'} required error={e('service_summary') ?? e('status')} hint={cancelling ? 'At least 10 characters, so the office can decide.' : form.status === 'part_pending' ? 'Write which part is needed, so the office can order it.' : undefined}>
         <Input
           multiline
           value={form.service_summary}
@@ -473,26 +498,36 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
           placeholder={form.status === 'cancelled' ? 'Why should this job be cancelled?' : 'What was checked / done, parts pending, advice given…'}
         />
       </Field>
-      <Field label="Customer Satisfaction Code" error={e('customer_satisfaction_code')} hint="Ask the customer for this code.">
-        <Input value={form.customer_satisfaction_code} autoCapitalize="characters" autoCorrect={false} maxLength={50} onChangeText={(v) => set('customer_satisfaction_code', v)} />
-      </Field>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}>
-          <Field label="Labour charge" error={e('labour_charge')}>
-            <Input value={form.labour_charge} keyboardType="decimal-pad" placeholder="0" onChangeText={(v) => setForm((f) => ({ ...f, labour_charge: v.replace(/[^\d.]/g, ''), amount_collected: '' }))} />
+      {!cancelling && (
+        <>
+          <Field label="Customer Satisfaction Code" error={e('customer_satisfaction_code')} hint="Ask the customer for this code.">
+            <Input value={form.customer_satisfaction_code} autoCapitalize="characters" autoCorrect={false} maxLength={50} onChangeText={(v) => set('customer_satisfaction_code', v)} />
           </Field>
-        </View>
-        <View style={{ flex: 1 }}>
-          <Field label="Spare charge" error={e('spare_charge')} hint={usageTotal ? `Parts: ${money(usageTotal)}` : undefined}>
-            <Input value={form.spare_charge} keyboardType="decimal-pad" placeholder="0" onChangeText={(v) => setForm((f) => ({ ...f, spare_charge: v.replace(/[^\d.]/g, ''), amount_collected: '' }))} />
-          </Field>
-        </View>
-      </View>
-      <Card>
-        <Row k="This visit" v={money(total)} />
-        {previousBalance > 0 && <Row k="Previous balance" v={money(previousBalance)} vStyle={{ color: colors.amber }} />}
-        <Row k="Amount due" v={money(due)} strong />
-      </Card>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <Field label="Labour charge" error={e('labour_charge')}>
+                <Input value={form.labour_charge} keyboardType="decimal-pad" placeholder="0" onChangeText={(v) => setForm((f) => ({ ...f, labour_charge: v.replace(/[^\d.]/g, ''), amount_collected: '' }))} />
+              </Field>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="Spare charge" error={e('spare_charge')} hint={usageTotal ? `Parts: ${money(usageTotal)}` : undefined}>
+                <Input value={form.spare_charge} keyboardType="decimal-pad" placeholder="0" onChangeText={(v) => setForm((f) => ({ ...f, spare_charge: v.replace(/[^\d.]/g, ''), amount_collected: '' }))} />
+              </Field>
+            </View>
+          </View>
+          {chooseBillType && total > 0 && (
+            <Field label="Bill type" error={e('is_gst')} hint={gstBill ? 'Prices include GST, so the customer pays the same. The invoice shows the tax split.' : 'A plain invoice with no tax shown.'}>
+              <Segmented value={gstBill ? 'gst' : 'non_gst'} onChange={(v) => setIsGst(v === 'gst')} options={[{ value: 'gst', label: 'GST bill' }, { value: 'non_gst', label: 'Non-GST bill' }]} />
+            </Field>
+          )}
+          {!!job.invoice && total > 0 && <Muted>This adds to {job.invoice.invoice_number}, a {job.invoice.is_gst ? 'GST' : 'non-GST'} bill.</Muted>}
+          <Card>
+            <Row k="This visit" v={money(total)} />
+            {previousBalance > 0 && <Row k="Previous balance" v={money(previousBalance)} vStyle={{ color: colors.amber }} />}
+            <Row k="Amount due" v={money(due)} strong />
+          </Card>
+        </>
+      )}
 
       {due > 0 && (
         <>
@@ -564,6 +599,7 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
         variant={form.status === 'cancelled' ? 'danger' : 'primary'}
         icon="checkmark-circle"
         loading={m.isPending}
+        disabled={cancelling && (partsOnVisit > 0 || form.service_summary.trim().length < 10)}
         onPress={confirm}
       />
 
@@ -597,22 +633,7 @@ function Completed({ result }: { result: { invoice: Invoice | null; payment: Pay
         <Icon name="checkmark-circle" size={64} color={colors.green} />
         <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text, textAlign: 'center' }}>{result.status === 'cancelled' ? 'Cancellation sent for approval' : `Visit saved as ${label(result.status)}`}</Text>
       </View>
-      {result.invoice && (
-        <Card>
-          <Row k="Invoice" v={result.invoice.invoice_number} />
-          <Row k="Total" v={money(result.invoice.total_amount)} />
-          <Row k="Paid" v={money(result.invoice.paid_amount)} />
-          <Row k="Balance" v={money(result.invoice.balance_amount)} strong />
-          {result.payment && (
-            <View style={{ marginTop: 8 }}>
-              <Badge text="paid" tone="paid" />
-              <Muted>
-                Receipt {result.payment.receipt_number} · {money(result.payment.amount)} {METHOD_LABEL[result.payment.method]}
-              </Muted>
-            </View>
-          )}
-        </Card>
-      )}
+      {result.invoice && <BillSummary invoice={{ ...result.invoice, payments: result.payment ? [result.payment] : result.invoice.payments }} />}
       <Button title="Back to home" size="lg" onPress={() => router.dismissTo('/')} />
     </Screen>
   );

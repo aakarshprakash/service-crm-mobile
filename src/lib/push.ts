@@ -91,7 +91,8 @@ async function doRegister(): Promise<PushStatus> {
     return (lastStatus = 'registered');
   } catch (e) {
     // getDevicePushTokenAsync fails when the APK was built without google-services.json.
-    lastStatus = /firebase|FCM|google|fetch/i.test(String((e as Error)?.message)) ? 'unavailable' : 'error';
+    // Anything else, such as a token request failing on a weak signal, can be retried.
+    lastStatus = /FirebaseApp|google-services/i.test(String((e as Error)?.message)) ? 'unavailable' : 'error';
     return lastStatus;
   }
 }

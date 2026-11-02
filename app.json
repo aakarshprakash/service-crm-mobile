@@ -2,7 +2,7 @@
   "expo": {
     "name": "Servon Technician",
     "slug": "servon-technician",
-    "version": "2.2.0",
+    "version": "2.3.0",
     "scheme": "servon",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "com.servon.technician",
-      "versionCode": 220,
+      "versionCode": 230,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -26,7 +26,8 @@
         "ACCESS_FINE_LOCATION",
         "CAMERA",
         "RECORD_AUDIO",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "USE_BIOMETRIC"
       ],
       "blockedPermissions": [
         "android.permission.ACCESS_BACKGROUND_LOCATION"
@@ -45,6 +46,12 @@
       "expo-status-bar",
       "expo-secure-store",
       "expo-sharing",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Servon uses Face ID to sign you in without your password."
+        }
+      ],
       [
         "expo-location",
         {
