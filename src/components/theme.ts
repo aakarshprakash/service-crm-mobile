@@ -105,6 +105,8 @@ function buildTones() {
     open: { fg: colors.sky, bg: colors.skySoft },
     in_progress: { fg: colors.violet, bg: colors.violetSoft },
     pending: { fg: colors.amber, bg: colors.amberSoft },
+    part_pending: { fg: colors.red, bg: colors.redSoft },
+    cancel_requested: { fg: colors.red, bg: colors.redSoft },
     completed: { fg: colors.green, bg: colors.greenSoft },
     cancelled: { fg: colors.muted, bg: colors.chip },
     approved: { fg: colors.green, bg: colors.greenSoft },

@@ -105,6 +105,11 @@ export function callAge(days: number | null | undefined): string {
   return days <= 0 ? 'Logged today' : days === 1 ? '1 day old' : `${days} days old`;
 }
 
+/** "LLOYD GLS18I5": the unit's brand and typed model, or just what is known so far. */
+export function productName(p?: { model_no?: string | null; brand?: { name: string } | null; product?: { model_name: string; brand?: { name: string } | null } | null } | null): string {
+  return [p?.product?.brand?.name ?? p?.brand?.name, p?.model_no ?? p?.product?.model_name].filter(Boolean).join(' ');
+}
+
 export function label(value: string | null | undefined): string {
   if (!value) return '–';
   return value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

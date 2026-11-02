@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import { Pressable, View } from 'react-native';
 import { router } from 'expo-router';
 import { Text } from '@/components/Text';
-import { callAge, date, label, schedule } from '@/lib/format';
+import { callAge, date, label, productName, schedule } from '@/lib/format';
 import type { Job } from '@/lib/types';
 import { Badge, Icon, type IconName } from '@/components/ui';
 import { colors, radius } from '@/components/theme';
@@ -65,7 +65,7 @@ export function JobAddress({ job, lines = 2 }: { job: Job; lines?: number }) {
 }
 
 export function JobCard({ job: j }: { job: Job }) {
-  const product = [j.customer_product?.product?.brand?.name, j.customer_product?.product?.model_name].filter(Boolean).join(' ');
+  const product = productName(j.customer_product);
   const old = (j.call_age_days ?? 0) >= 7 ? colors.red : (j.call_age_days ?? 0) >= 3 ? colors.amber : colors.muted;
   return (
     <Pressable

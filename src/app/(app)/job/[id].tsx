@@ -5,7 +5,7 @@ import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { api, type Envelope } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { callAge, date, dateTime, label, money, schedule } from '@/lib/format';
+import { callAge, date, dateTime, label, money, productName, schedule } from '@/lib/format';
 import { useTechDashboard } from '@/lib/punch';
 import type { Job } from '@/lib/types';
 import { toast } from '@/components/toast';
@@ -62,6 +62,19 @@ export default function JobDetail() {
         </View>
         <ScheduleChip job={job} size="lg" />
 
+        {job.status === 'part_pending' && job.part_pending_note && (
+          <View style={{ backgroundColor: colors.redSoft, borderRadius: 10, padding: 12 }}>
+            <Text style={{ color: colors.red, fontWeight: '700' }}>Waiting for a part</Text>
+            <Text style={{ color: colors.red }}>{job.part_pending_note}</Text>
+          </View>
+        )}
+        {job.status === 'cancel_requested' && (
+          <View style={{ backgroundColor: colors.redSoft, borderRadius: 10, padding: 12 }}>
+            <Text style={{ color: colors.red, fontWeight: '700' }}>Waiting for the office to approve the cancellation</Text>
+            {job.cancel_reason && <Text style={{ color: colors.red }}>Your reason: {job.cancel_reason}</Text>}
+          </View>
+        )}
+
         <Card>
           <Text style={{ fontSize: 17, fontWeight: '700', color: colors.text }}>{c?.name}</Text>
           <Muted>
@@ -95,12 +108,13 @@ export default function JobDetail() {
           </View>
           <Row k="Complaint" v={job.complaint_type?.name ?? '—'} />
           <Row k="Summary" v={job.complaint_summary?.name ?? '—'} />
-          <Row k="Product" v={[p?.product?.brand?.name, p?.product?.model_name].filter(Boolean).join(' ') || '—'} />
+          <Row k="Product" v={productName(p) || '—'} />
           <Row k="Serial no." v={p?.serial_no ?? '—'} />
           {p?.outdoor_serial_no && <Row k="Outdoor serial" v={p.outdoor_serial_no} />}
           <Row k="Warranty" v={p ? `${label(p.warranty_type)}${p.under_warranty === undefined ? '' : p.under_warranty ? ' · covered' : ' · expired'}` : '—'} />
           <Row k="Purchased" v={date(p?.purchase_date)} />
           <Row k="Logged" v={dateTime(job.created_at)} />
+          {job.customer_satisfaction_code && <Row k="Customer Satisfaction Code" v={job.customer_satisfaction_code} />}
           {job.complaint_details && (
             <View style={{ marginTop: 10, backgroundColor: colors.bg, borderRadius: 10, padding: 12 }}>
               <Text style={{ color: colors.text }}>{job.complaint_details}</Text>
@@ -157,7 +171,7 @@ export default function JobDetail() {
         {active ? (
           <Button title="Continue service" size="lg" icon="play" onPress={() => router.push({ pathname: '/visit/[id]', params: { id: active.id, job: job.id } })} />
         ) : (
-          ['open', 'pending'].includes(job.status) && <Button title="Start service" size="lg" icon="construct" onPress={startService} />
+          ['open', 'pending', 'part_pending'].includes(job.status) && <Button title="Start service" size="lg" icon="construct" onPress={startService} />
         )}
         {job.invoice && job.invoice.balance_amount > 0 && !active && (
           <Button title={`Collect balance ${money(job.invoice.balance_amount)}`} variant="secondary" icon="cash-outline" onPress={() => setCollecting(true)} />
@@ -207,7 +221,7 @@ function mapsLink(job: Job, directions = false): string | null {
 async function shareJob(job: Job) {
   const c = job.customer;
   const p = job.customer_product;
-  const product = [p?.product?.brand?.name, p?.product?.model_name].filter(Boolean).join(' ');
+  const product = productName(p);
   const last = job.previous_services?.[0];
   const lines = [
     `Job ${job.crm_call_id} · ${label(job.status)} · ${label(job.priority)} priority`,

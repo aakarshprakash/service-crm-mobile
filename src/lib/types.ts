@@ -1,6 +1,6 @@
 /** API shapes used by the technician app (subset of the web app's types). */
 
-export type JobStatus = 'open' | 'in_progress' | 'pending' | 'completed' | 'cancelled';
+export type JobStatus = 'open' | 'in_progress' | 'pending' | 'part_pending' | 'cancel_requested' | 'completed' | 'cancelled';
 export type Priority = 'low' | 'medium' | 'high';
 
 export interface Named {
@@ -57,7 +57,10 @@ export interface CustomerProduct {
   warranty_type: string | null;
   warranty_expiry?: string | null;
   under_warranty?: boolean;
+  /** The model as typed, e.g. from the unit's label. */
+  model_no?: string | null;
   product?: { id: number; model_name: string; brand?: Named | null } | null;
+  brand?: Named | null;
   dealer?: Named | null;
 }
 
@@ -177,6 +180,12 @@ export interface Job {
   branch_id: number | null;
   complaint_type_id: number | null;
   complaint_details: string | null;
+  /** Collected from the customer by the technician. */
+  customer_satisfaction_code?: string | null;
+  /** Which part a part-pending job is waiting for. */
+  part_pending_note?: string | null;
+  /** Why the technician asked to cancel, while the office decides. */
+  cancel_reason?: string | null;
   previous_services?: PreviousService[];
   customer?: Customer;
   customer_product?: CustomerProduct | null;
@@ -207,6 +216,8 @@ export interface UpiAccount {
 }
 
 export interface Lookups {
+  /** Models typed on earlier units, most recent first. */
+  model_suggestions?: { model_no: string; brand_id: number | null }[];
   complaint_types: Named[];
   action_taken_options: Named[];
   upi_accounts?: UpiAccount[];

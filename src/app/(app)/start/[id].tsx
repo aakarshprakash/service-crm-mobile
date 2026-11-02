@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Text } from '@/components/Text';
 import { api, ApiError, type Envelope } from '@/lib/api';
 import { getPosition, tryPosition } from '@/lib/location';
+import { productName } from '@/lib/format';
 import { DASHBOARD_KEY } from '@/lib/punch';
 import type { Job, Visit } from '@/lib/types';
 import { toast } from '@/components/toast';
@@ -25,10 +26,10 @@ export default function StartService() {
   const q = useQuery({ queryKey: ['tech-job', id], queryFn: () => api.get<Envelope<Job>>(`/jobs/${id}`).then((r) => r.data) });
   if (q.isLoading) return <Loading />;
   if (q.error || !q.data) return <ErrorView error={q.error} onRetry={q.refetch} />;
-  if (!['open', 'pending'].includes(q.data.status)) {
+  if (!['open', 'pending', 'part_pending'].includes(q.data.status)) {
     return (
       <Screen>
-        <Empty icon="information-circle-outline" title="This job can’t be started" message={`It is ${q.data.status.replace('_', ' ')}.`} />
+        <Empty icon="information-circle-outline" title="This job can’t be started" message={`It is ${q.data.status.replace(/_/g, ' ')}.`} />
         <Button title="Back to job" variant="secondary" onPress={() => router.back()} />
       </Screen>
     );
@@ -48,7 +49,7 @@ function StartForm({ job }: { job: Job }) {
   const [punchFirst, setPunchFirst] = useState(false);
   const c = job.customer;
   const p = job.customer_product;
-  const product = [p?.product?.brand?.name, p?.product?.model_name].filter(Boolean).join(' ');
+  const product = productName(p);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
 
   const start = async () => {
@@ -119,8 +120,8 @@ function StartForm({ job }: { job: Job }) {
         </Card>
 
         <Text style={{ fontSize: 15, fontWeight: '700', color: colors.text, marginTop: 4 }}>Check and fill in the details</Text>
-        <Muted style={{ marginTop: -6 }}>Correct anything that’s wrong and add what’s missing, such as the serial number. It’s saved when you start.</Muted>
-        <CallDetailsFields form={form} set={set} error={(f) => errors?.field(f)} hasProduct={!!p} scanHint="Scanned. It’s saved when you start the service." />
+        <Muted style={{ marginTop: -6 }}>Correct anything that’s wrong and add what’s missing, such as the model or serial number. It’s saved when you start.</Muted>
+        <CallDetailsFields form={form} set={set} error={(f) => errors?.field(f)} hasProduct={!!p} brandId={p?.brand?.id ?? p?.product?.brand?.id} scanHint="Scanned. It’s saved when you start the service." />
 
         <Card title="How are you serving this call?">
           <Segmented

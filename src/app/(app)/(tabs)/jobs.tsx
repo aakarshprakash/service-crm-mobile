@@ -12,6 +12,8 @@ const STATUSES: { value: JobStatus; label: string }[] = [
   { value: 'open', label: 'Open' },
   { value: 'in_progress', label: 'Active' },
   { value: 'pending', label: 'Pending' },
+  { value: 'part_pending', label: 'Part' },
+  { value: 'cancel_requested', label: 'Cancel' },
   { value: 'completed', label: 'Done' },
 ];
 
@@ -47,7 +49,7 @@ export default function Jobs() {
             <Icon name="search" size={18} color={colors.faint} />
           </View>
         </View>
-        {!debounced && <Segmented value={status} onChange={setStatus} options={STATUSES.map((s) => ({ ...s, count: counts.data?.[s.value] }))} />}
+        {!debounced && <Segmented columns={3} value={status} onChange={setStatus} options={STATUSES.map((s) => ({ ...s, count: counts.data?.[s.value] }))} />}
       </View>
       {q.isLoading ? (
         <Loading />

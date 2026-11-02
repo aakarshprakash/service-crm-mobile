@@ -122,7 +122,7 @@ function CallTab({ job, visit }: { job: Job; visit: Visit }) {
         <Text style={{ fontWeight: '700', color: colors.text }}>{c?.name}</Text>
         <Muted>{c?.phone}</Muted>
       </Card>
-      <CallDetailsFields form={form} set={set} error={e} hasProduct={!!job.customer_product} scanHint="Scanned. Tap “Save call details” to keep it." />
+      <CallDetailsFields form={form} set={set} error={e} hasProduct={!!job.customer_product} brandId={job.customer_product?.brand?.id ?? job.customer_product?.product?.brand?.id} scanHint="Scanned. Tap “Save call details” to keep it." />
       <Button title="Save call details" loading={m.isPending} onPress={() => m.mutate(undefined)} />
 
       <Card title="Customer location">
@@ -368,9 +368,10 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
   const usageTotal = (visit.inventory_usage ?? []).reduce((a, u) => a + u.total_price, 0);
   const previousBalance = job.invoice?.balance_amount ?? 0;
   const [form, setForm] = useState({
-    status: 'completed' as 'completed' | 'pending' | 'cancelled',
+    status: 'completed' as 'completed' | 'pending' | 'part_pending' | 'cancelled',
     action_taken_id: '',
     service_summary: visit.service_summary ?? '',
+    customer_satisfaction_code: job.customer_satisfaction_code ?? '',
     labour_charge: '',
     spare_charge: toMajor(usageTotal),
     payment_method: 'cash',
@@ -413,6 +414,7 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
         status: form.status,
         action_taken_id: form.action_taken_id ? Number(form.action_taken_id) : null,
         service_summary: form.service_summary,
+        customer_satisfaction_code: form.customer_satisfaction_code.trim() || null,
         labour_charge: toMinor(form.labour_charge),
         spare_charge: toMinor(form.spare_charge),
         payment_method: total > 0 || collected > 0 ? form.payment_method : null,
@@ -445,8 +447,8 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
 
   const confirm = () =>
     Alert.alert(
-      form.status === 'completed' ? 'Complete this visit?' : form.status === 'pending' ? 'Save visit as pending?' : 'Cancel this job?',
-      `${form.status !== 'cancelled' ? `Total charge ${money(total)}. ` : ''}${collects && collected > 0 ? `You collected ${money(collected)} by ${METHOD_LABEL[form.payment_method]}. ` : ''}The visit can’t be edited afterwards.`,
+      form.status === 'completed' ? 'Complete this visit?' : form.status === 'pending' ? 'Save visit as pending?' : form.status === 'part_pending' ? 'Save visit as part pending?' : 'Send this cancellation for approval?',
+      `${form.status !== 'cancelled' ? `Total charge ${money(total)}. ` : ''}${collects && collected > 0 ? `You collected ${money(collected)} by ${METHOD_LABEL[form.payment_method]}. ` : ''}The visit can’t be edited afterwards.${form.status === 'cancelled' ? ' The job stays open until the office approves or rejects it.' : ''}`,
       [
         { text: 'Go back', style: 'cancel' },
         { text: 'Yes, save', style: form.status === 'cancelled' ? 'destructive' : 'default', onPress: () => m.mutate(undefined) },
@@ -456,15 +458,23 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
   return (
     <Screen>
       <Field label="Visit result" required>
-        <Segmented value={form.status} onChange={(v) => set('status', v)} options={[{ value: 'completed', label: 'Completed' }, { value: 'pending', label: 'Pending' }, { value: 'cancelled', label: 'Cancelled' }]} />
+        <Segmented columns={2} value={form.status} onChange={(v) => set('status', v)} options={[{ value: 'completed', label: 'Completed' }, { value: 'pending', label: 'Pending' }, { value: 'part_pending', label: 'Part pending' }, { value: 'cancelled', label: 'Cancel job' }]} />
       </Field>
       <Field label="Action taken" required={form.status === 'completed'} error={e('action_taken_id')}>
         <Pressable onPress={() => setPickAction(true)} style={{ borderWidth: 1, borderColor: e('action_taken_id') ? colors.red : colors.inputBorder, borderRadius: 10, minHeight: 46, paddingHorizontal: 12, justifyContent: 'center', backgroundColor: '#fff' }}>
           <Text style={{ color: actionName ? colors.text : colors.faint, fontSize: 16 }}>{actionName ?? 'Select what you did…'}</Text>
         </Pressable>
       </Field>
-      <Field label="Service summary" required error={e('service_summary')}>
-        <Input multiline value={form.service_summary} onChangeText={(v) => set('service_summary', v)} placeholder="What was checked / done, parts pending, advice given…" />
+      <Field label={form.status === 'cancelled' ? 'Reason for cancelling' : 'Service summary'} required error={e('service_summary')} hint={form.status === 'part_pending' ? 'Write which part is needed, so the office can order it.' : undefined}>
+        <Input
+          multiline
+          value={form.service_summary}
+          onChangeText={(v) => set('service_summary', v)}
+          placeholder={form.status === 'cancelled' ? 'Why should this job be cancelled?' : 'What was checked / done, parts pending, advice given…'}
+        />
+      </Field>
+      <Field label="Customer Satisfaction Code" error={e('customer_satisfaction_code')} hint="Ask the customer for this code.">
+        <Input value={form.customer_satisfaction_code} autoCapitalize="characters" autoCorrect={false} maxLength={50} onChangeText={(v) => set('customer_satisfaction_code', v)} />
       </Field>
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
@@ -549,7 +559,7 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
       )}
 
       <Button
-        title={waitingUploads ? 'Finishing uploads…' : form.status === 'completed' ? 'Save & generate invoice' : form.status === 'pending' ? 'Save as pending' : 'Cancel this job'}
+        title={waitingUploads ? 'Finishing uploads…' : form.status === 'completed' ? 'Save & generate invoice' : form.status === 'pending' ? 'Save as pending' : form.status === 'part_pending' ? 'Save as part pending' : 'Send cancellation for approval'}
         size="lg"
         variant={form.status === 'cancelled' ? 'danger' : 'primary'}
         icon="checkmark-circle"
@@ -585,7 +595,7 @@ function Completed({ result }: { result: { invoice: Invoice | null; payment: Pay
     <Screen>
       <View style={{ alignItems: 'center', gap: 8, paddingVertical: 24 }}>
         <Icon name="checkmark-circle" size={64} color={colors.green} />
-        <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>Visit saved as {label(result.status)}</Text>
+        <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text, textAlign: 'center' }}>{result.status === 'cancelled' ? 'Cancellation sent for approval' : `Visit saved as ${label(result.status)}`}</Text>
       </View>
       {result.invoice && (
         <Card>
