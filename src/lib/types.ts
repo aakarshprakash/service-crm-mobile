@@ -195,6 +195,7 @@ export interface PunchRules {
   branch: { name: string; lat: number | null; lng: number | null; radius: number | null } | null;
   require_location: boolean;
   require_punch_in: boolean;
+  shift?: { name: string; start: string; end: string; grace_minutes: number } | null;
 }
 
 export interface Job {
@@ -292,6 +293,10 @@ export interface AttendanceDay {
   in: string | null;
   out: string | null;
   minutes: number;
+  late_minutes?: number;
+  early_minutes?: number;
+  extra_minutes?: number;
+  shift?: { name: string; start: string; end: string } | null;
   leave_type?: string | null;
   holiday?: string | null;
 }

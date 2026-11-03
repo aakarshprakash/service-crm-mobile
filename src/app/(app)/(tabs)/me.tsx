@@ -190,7 +190,7 @@ function Attendance() {
   const [month, setMonth] = useState(today().slice(0, 7));
   const q = useQuery({
     queryKey: ['my-attendance', month],
-    queryFn: () => api.get<Envelope<{ days: AttendanceDay[]; summary: { present: number; paid_leave: number; unpaid_leave: number; absent: number; minutes: number } }>>('/my/attendance', { month }).then((r) => r.data),
+    queryFn: () => api.get<Envelope<{ days: AttendanceDay[]; summary: { present: number; paid_leave: number; unpaid_leave: number; absent: number; minutes: number; late_days?: number } }>>('/my/attendance', { month }).then((r) => r.data),
   });
   const d = q.data;
   const first = d?.days[0] ? new Date(d.days[0].date + 'T00:00:00').getDay() : 0;
@@ -232,6 +232,7 @@ function Attendance() {
                   <View style={{ aspectRatio: 1, borderRadius: 8, backgroundColor: t.bg, alignItems: 'center', justifyContent: 'center', borderWidth: day.date === today() ? 2 : 0, borderColor: colors.brand }}>
                     <Text style={{ color: t.fg, fontWeight: '700', fontSize: 13 }}>{Number(day.date.slice(8))}</Text>
                     <Text style={{ color: t.fg, fontSize: 9 }}>{day.code}</Text>
+                    {(!!day.late_minutes || !!day.early_minutes) && <View style={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: 3, backgroundColor: colors.red }} />}
                   </View>
                 </Pressable>
               );
@@ -243,6 +244,7 @@ function Attendance() {
                 ['Present', num(d.summary.present)],
                 ['Leave', num(d.summary.paid_leave)],
                 ['Absent', num(d.summary.absent + d.summary.unpaid_leave)],
+                ['Late', String(d.summary.late_days ?? 0)],
                 ['Hours', hours(d.summary.minutes)],
               ] as const
             ).map(([k, v]) => (
@@ -263,6 +265,16 @@ function Attendance() {
                 {selected.leave_type ? ` · ${selected.leave_type}` : ''}
                 {selected.holiday ? ` · ${selected.holiday}` : ''}
               </Muted>
+              {!!selected.shift && (
+                <Muted style={{ fontSize: 12, marginTop: 2 }}>
+                  {selected.shift.name} shift {selected.shift.start}–{selected.shift.end}
+                </Muted>
+              )}
+              {(!!selected.late_minutes || !!selected.early_minutes || !!selected.extra_minutes) && (
+                <Text style={{ fontSize: 13, marginTop: 2, color: selected.late_minutes || selected.early_minutes ? colors.amber : colors.green }}>
+                  {[selected.late_minutes && `${hours(selected.late_minutes)} late`, selected.early_minutes && `left ${hours(selected.early_minutes)} early`, selected.extra_minutes && `${hours(selected.extra_minutes)} extra`].filter(Boolean).join(' · ')}
+                </Text>
+              )}
             </View>
           )}
         </>

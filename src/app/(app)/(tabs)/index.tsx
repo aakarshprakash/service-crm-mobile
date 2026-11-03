@@ -60,6 +60,14 @@ export default function Home() {
           </View>
           <Button title={onDuty ? 'Punch out' : 'Punch in'} size="sm" icon={onDuty ? 'log-out-outline' : 'finger-print-outline'} variant={onDuty ? 'secondary' : 'success'} loading={punching} onPress={punch} />
         </View>
+        {!!d.attendance?.shift && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border }}>
+            <Icon name="time-outline" size={16} color={colors.muted} />
+            <Muted style={{ flex: 1, fontSize: 12 }}>
+              {d.attendance.shift.name} shift · {d.attendance.shift.start}–{d.attendance.shift.end}
+            </Muted>
+          </View>
+        )}
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border }}>
           <Icon name={d.attendance?.geofence && d.attendance.geofence !== 'off' ? 'locate-outline' : 'globe-outline'} size={16} color={colors.muted} />
           <Muted style={{ flex: 1, fontSize: 12 }}>

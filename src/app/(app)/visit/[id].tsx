@@ -67,10 +67,19 @@ export default function VisitScreen() {
           ]}
         />
       </View>
-      {tab === 'call' && <CallTab job={job.data} visit={v} />}
-      {tab === 'photos' && <PhotosTab visit={v} />}
-      {tab === 'parts' && <PartsTab visit={v} />}
-      {tab === 'complete' && <CompleteTab job={job.data} visit={v} onDone={setDone} />}
+      {/* All stay mounted, so moving between steps never loses what's been typed in another. */}
+      <View style={{ flex: 1, display: tab === 'call' ? 'flex' : 'none' }}>
+        <CallTab job={job.data} visit={v} onNext={() => setTab('photos')} />
+      </View>
+      <View style={{ flex: 1, display: tab === 'photos' ? 'flex' : 'none' }}>
+        <PhotosTab visit={v} onNext={() => setTab('parts')} />
+      </View>
+      <View style={{ flex: 1, display: tab === 'parts' ? 'flex' : 'none' }}>
+        <PartsTab visit={v} onNext={() => setTab('complete')} />
+      </View>
+      <View style={{ flex: 1, display: tab === 'complete' ? 'flex' : 'none' }}>
+        <CompleteTab job={job.data} visit={v} onDone={setDone} />
+      </View>
     </>
   );
 }
@@ -88,7 +97,7 @@ function VisitTimer({ start }: { start: string }) {
 }
 
 /** Correct the complaint and product while on site. The customer's own details are the office's to change. */
-function CallTab({ job, visit }: { job: Job; visit: Visit }) {
+function CallTab({ job, visit, onNext }: { job: Job; visit: Visit; onNext: () => void }) {
   const c = job.customer;
   const [form, setForm] = useState(() => initialCallForm(job));
   const set = (k: keyof CallForm, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -96,6 +105,7 @@ function CallTab({ job, visit }: { job: Job; visit: Visit }) {
     invalidate: [['tech-job', String(job.id)]],
     toastValidation: false,
     success: 'Saved',
+    onSuccess: onNext,
   });
   const e = (n: string) => fieldError(m.error, n);
 
@@ -110,7 +120,7 @@ function CallTab({ job, visit }: { job: Job; visit: Visit }) {
       <CustomerLocationCard job={job} />
       <ComplaintFields form={form} set={set} error={e} />
       <ProductFields job={job} form={form} set={set} error={e} scanHint="Scanned. Tap “Save details” to keep it." />
-      <Button title="Save details" loading={m.isPending} onPress={() => m.mutate(undefined)} />
+      <Button title="Save & continue" icon="arrow-forward" loading={m.isPending} onPress={() => m.mutate(undefined)} />
     </Screen>
   );
 }
@@ -124,7 +134,7 @@ const DEFAULT_PHOTO_TYPES = [
   { key: 'other', label: 'Other' },
 ];
 
-function PhotosTab({ visit }: { visit: Visit }) {
+function PhotosTab({ visit, onNext }: { visit: Visit; onNext: () => void }) {
   const qc = useQueryClient();
   const pending = useUploads(visit.id).filter((u) => u.kind === 'image');
   const [preparing, setPreparing] = useState<string | null>(null);
@@ -208,6 +218,7 @@ function PhotosTab({ visit }: { visit: Visit }) {
         );
       })}
       <Muted style={{ textAlign: 'center' }}>Photos upload in the background and are kept on the phone until they reach the office, even without signal. Long-press a photo to delete it.</Muted>
+      <Button title="Next: Parts" icon="arrow-forward" onPress={onNext} />
     </Screen>
   );
 }
@@ -248,7 +259,7 @@ function PendingThumb({ item }: { item: UploadItem }) {
   );
 }
 
-function PartsTab({ visit }: { visit: Visit }) {
+function PartsTab({ visit, onNext }: { visit: Visit; onNext: () => void }) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -367,6 +378,7 @@ function PartsTab({ visit }: { visit: Visit }) {
           </Card>
         )
       )}
+      <Button title="Next: Complete" icon="arrow-forward" onPress={onNext} />
     </Screen>
   );
 }
@@ -394,6 +406,10 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
   const chooseBillType = !!billing?.gst_registered && !job.invoice;
   const cancelling = form.status === 'cancelled';
   const partsOnVisit = visit.inventory_usage?.length ?? 0;
+  // Parts added or removed on the Parts step update the charge; this form stays open between steps.
+  useEffect(() => {
+    setForm((f) => ({ ...f, spare_charge: toMajor(usageTotal), amount_collected: '' }));
+  }, [usageTotal]);
   const [pickAction, setPickAction] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [signing, setSigning] = useState(false);
