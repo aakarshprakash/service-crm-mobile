@@ -31,7 +31,6 @@ export default function AppLayout() {
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="job/[id]" options={{ title: 'Job' }} />
-        <Stack.Screen name="start/[id]" options={{ title: 'Start service' }} />
         <Stack.Screen name="visit/[id]" options={{ title: 'Service in progress', gestureEnabled: false }} />
         <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
         <Stack.Screen name="expenses" options={{ title: 'My expenses' }} />

@@ -3,12 +3,13 @@ import { Alert, Linking, Pressable, Share, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Envelope } from '@/lib/api';
+import { api, ApiError, type Envelope } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { callAge, date, dateTime, label, money, productName, qty, schedule } from '@/lib/format';
 import { fieldError, isGone, useApiMutation } from '@/lib/hooks';
 import { DASHBOARD_KEY, useTechDashboard } from '@/lib/punch';
-import type { Job } from '@/lib/types';
+import { getPosition, tryPosition } from '@/lib/location';
+import type { Job, Visit } from '@/lib/types';
 import { toast } from '@/components/toast';
 import { Badge, Banner, BottomBar, Button, Card, ErrorView, Field, FlowSteps, Icon, Input, Loading, Muted, Row, Screen, Sheet, type IconName } from '@/components/ui';
 import { BillSummary } from '@/components/BillSummary';
@@ -38,6 +39,9 @@ function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; 
   const [punchFirst, setPunchFirst] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [notOnSite, setNotOnSite] = useState(false);
+  const qc = useQueryClient();
   const { collect, locating } = useCollectLocation(job);
 
   const active = job.visits?.find((v) => v.status === 'in_progress');
@@ -61,11 +65,38 @@ function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; 
     ]);
   }, [missingLocation, job.id, collect]);
 
-  // Punch-in check first (the server checks again), then "Check details" before the visit starts.
-  const startService = () => {
+  // Starts the visit right away; the details are corrected on the visit's Call tab.
+  const begin = async (type: 'on_site' | 'tele_call' | 'office') => {
+    setStarting(true);
+    try {
+      // On site needs a fix on the technician's position; for a tele call or office visit it's only a bonus.
+      const pos = type === 'on_site' ? await getPosition() : await tryPosition();
+      const res = await api.post<Envelope<Visit>>(`/jobs/${job.id}/visits/start`, { service_type: type, ...(pos ?? {}) });
+      toast.success('Service started. Timer is running.');
+      qc.setQueryData(['visit', String(res.data.id)], { images: [], voice_notes: [], inventory_usage: [], ...res.data });
+      qc.invalidateQueries({ queryKey: ['tech-job', String(job.id)] });
+      qc.invalidateQueries({ queryKey: DASHBOARD_KEY });
+      qc.invalidateQueries({ queryKey: ['tech-jobs'] });
+      router.push({ pathname: '/visit/[id]', params: { id: res.data.id, job: job.id } });
+    } catch (e) {
+      const needsLocation = e instanceof ApiError ? e.field('location') : type === 'on_site' ? (e as Error).message : null;
+      if (e instanceof ApiError && e.field('punch')) setPunchFirst(true);
+      else if (needsLocation) {
+        Alert.alert('Location needed for on-site visits', needsLocation, [
+          { text: 'OK', style: 'cancel' },
+          { text: 'Not a site visit', onPress: () => setNotOnSite(true) },
+        ]);
+      } else toast.error((e as Error).message);
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  // Punch-in check first (the server checks again).
+  const startService = (type: 'on_site' | 'tele_call' | 'office' = 'on_site') => {
     const onDuty = (dash?.punch_status ?? user?.punch_status) === 'in';
     if (dash?.attendance?.require_punch_in !== false && !onDuty) setPunchFirst(true);
-    else router.push({ pathname: '/start/[id]', params: { id: job.id } });
+    else begin(type);
   };
 
   return (
@@ -202,6 +233,7 @@ function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; 
           </Card>
         )}
 
+        {canStart && !active && <Button title="Not a site visit? Start as tele call or office" variant="ghost" size="sm" icon="call-outline" onPress={() => setNotOnSite(true)} />}
         {canStart && !active && <Button title="Ask the office to cancel this job" variant="ghost" size="sm" icon="close-circle-outline" onPress={() => setCancelling(true)} />}
       </Screen>
       {active ? (
@@ -211,7 +243,7 @@ function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; 
       ) : (
         canStart && (
           <BottomBar>
-            <Button title="Check details & start" size="lg" icon="arrow-forward" style={{ flex: 1 }} onPress={startService} />
+            <Button title="Start service" size="lg" icon="play" loading={starting} style={{ flex: 1 }} onPress={() => startService()} />
           </BottomBar>
         )
       )}
@@ -220,9 +252,16 @@ function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; 
         onClose={() => setPunchFirst(false)}
         onPunched={() => {
           setPunchFirst(false);
-          router.push({ pathname: '/start/[id]', params: { id: job.id } });
+          begin('on_site');
         }}
       />
+      <Sheet open={notOnSite} onClose={() => setNotOnSite(false)} title="Start without a site visit">
+        <View style={{ gap: 10 }}>
+          <Muted>Your location is optional for these.</Muted>
+          <Button title="Tele call" icon="call-outline" variant="secondary" onPress={() => { setNotOnSite(false); startService('tele_call'); }} />
+          <Button title="Office" icon="business-outline" variant="secondary" onPress={() => { setNotOnSite(false); startService('office'); }} />
+        </View>
+      </Sheet>
       {collecting && job.invoice && (
         <CollectPayment
           invoiceId={job.invoice.id}

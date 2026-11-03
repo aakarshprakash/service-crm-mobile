@@ -174,9 +174,9 @@ export function Banner({ tone = 'warn', icon, title, message, children }: { tone
   );
 }
 
-const FLOW = [{ key: 'job', label: 'Job' }, { key: 'check', label: 'Check' }, { key: 'service', label: 'Service' }, { key: 'complete', label: 'Complete' }] as const;
+const FLOW = [{ key: 'job', label: 'Job' }, { key: 'service', label: 'Service' }, { key: 'complete', label: 'Complete' }] as const;
 
-/** Where the technician is on a job: Job → Check → Service → Complete. */
+/** Where the technician is on a job: Job → Service → Complete. */
 export function FlowSteps({ current }: { current: (typeof FLOW)[number]['key'] }) {
   const at = FLOW.findIndex((s) => s.key === current);
   return (
