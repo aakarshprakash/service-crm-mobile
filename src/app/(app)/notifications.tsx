@@ -1,11 +1,12 @@
-import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { router } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Paginated } from '@/lib/api';
 import { relative } from '@/lib/format';
 import { routeForNotification } from '@/lib/push';
 import type { NotificationItem } from '@/lib/types';
-import { Button, Empty, Loading, Muted } from '@/components/ui';
+import { Button, Empty, ErrorView, Loading, Muted } from '@/components/ui';
 import { colors } from '@/components/theme';
 
 export default function Notifications() {
@@ -18,7 +19,8 @@ export default function Notifications() {
     await api.post('/notifications/read', ids ? { ids } : {}).catch(() => undefined);
     qc.invalidateQueries({ queryKey: ['notifications'] });
   };
-  if (q.isLoading) return <Loading />;
+  if (q.isPending) return <Loading />;
+  if (!q.data) return <ErrorView error={q.error} onRetry={q.refetch} />;
   return (
     <FlatList
       data={q.data?.data ?? []}
@@ -33,12 +35,12 @@ export default function Notifications() {
             const to = routeForNotification(n.data);
             if (to && to !== '/notifications') router.push(to as never);
           }}
-          style={{ flexDirection: 'row', gap: 10, padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: n.read_at ? '#fff' : colors.brandSoft }}
+          style={{ flexDirection: 'row', gap: 10, padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: n.read_at ? colors.card : colors.brandSoft }}
         >
           {!n.read_at && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.brand, marginTop: 6 }} />}
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={{ fontWeight: '600', color: colors.text }}>{n.title}</Text>
-            <Text style={{ color: '#334155' }}>{n.message}</Text>
+            <Text style={{ color: colors.textSoft }}>{n.message}</Text>
             <Muted style={{ fontSize: 12 }}>{relative(n.created_at)}</Muted>
           </View>
         </Pressable>

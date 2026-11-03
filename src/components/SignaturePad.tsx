@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, Modal, PanResponder, Pressable, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Keyboard, Modal, PanResponder, Pressable, View, type LayoutChangeEvent } from 'react-native';
+import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { Button, Field, Icon, Input, Muted } from './ui';
@@ -128,7 +129,9 @@ export function SignaturePad({ open, onClose, onSave, defaultName }: { open: boo
 
   return (
     <Modal visible={open} animationType="slide" onRequestClose={close} statusBarTranslucent>
-      <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top, paddingBottom: insets.bottom + 12 }}>
+      {/* A modal window can't set dark status bar icons: a dark band keeps the white ones readable in both themes. */}
+      <View style={{ height: insets.top, backgroundColor: colors.navy }} />
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom + 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 }}>
           <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>Customer signature</Text>
           <Pressable onPress={close} hitSlop={12} accessibilityLabel="Close">

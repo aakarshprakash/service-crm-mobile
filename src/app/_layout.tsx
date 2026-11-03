@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'react';
-import { AppState, Linking, Platform, Pressable, Text, View } from 'react-native';
+import { AppState, Linking, Platform, Pressable, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { Stack, router, type ErrorBoundaryProps } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { QueryClient, QueryClientProvider, focusManager, onlineManager } from '@tanstack/react-query';
-import * as Network from 'expo-network';
+import { QueryClient, focusManager, onlineManager } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { PERSIST_MAX_AGE, queryPersister, shouldPersistQuery } from '@/lib/queryCache';
 import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { api, ApiError, type Envelope } from '@/lib/api';
-import { registerForPush, routeForNotification } from '@/lib/push';
+import { getConnectivity, initConnectivity, subscribeConnectivity } from '@/lib/connectivity';
+import { routeForNotification, syncPushToken } from '@/lib/push';
 import { initUploads, onUploaded, takeRememberedCapture } from '@/lib/uploads';
 import { queuePhoto } from '@/lib/photos';
+import { AppearanceProvider, useAppearance } from '@/lib/appearance';
 import { Toaster, toast } from '@/components/toast';
 import { StatusPill } from '@/components/StatusPill';
 import { Button, Icon, Loading } from '@/components/ui';
@@ -21,19 +25,21 @@ import { colors } from '@/components/theme';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 15_000,
-      // Retry dropped connections (common in the field), never 4xx answers.
-      retry: (count, error) => count < 3 && (!(error instanceof ApiError) || error.status === 0 || error.status >= 500),
-      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+      staleTime: 30_000,
+      // Kept (and saved on the phone) for a day so screens open instantly with the last data.
+      gcTime: PERSIST_MAX_AGE,
+      // Retry dropped connections (common in the field) twice, never 4xx answers.
+      retry: (count, error) => count < 2 && (!(error instanceof ApiError) || error.status === 0 || error.status >= 500),
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
     },
+    // Saving always tries and reports the result: never a spinner that waits, then saves by itself much later.
+    mutations: { networkMode: 'always' },
   },
 });
 
-// Pause queries while offline and refetch on reconnect / when the app comes back to the foreground.
-onlineManager.setEventListener((setOnline) => {
-  const sub = Network.addNetworkStateListener((s) => setOnline(s.isConnected !== false));
-  return () => sub.remove();
-});
+// Pause queries while the server is out of reach and refetch once it's back, or when the app returns to the foreground.
+initConnectivity();
+onlineManager.setEventListener((setOnline) => subscribeConnectivity(() => setOnline(!getConnectivity().offline)));
 focusManager.setEventListener((setFocused) => {
   const sub = AppState.addEventListener('change', (s) => setFocused(s === 'active'));
   return () => sub.remove();
@@ -41,8 +47,9 @@ focusManager.setEventListener((setFocused) => {
 
 // Photos and signatures queued on the phone keep uploading across restarts.
 initUploads();
-onUploaded((visitId) => {
-  queryClient.invalidateQueries({ queryKey: ['visit', String(visitId)] });
+onUploaded((visitId, item) => {
+  if (item.kind === 'receipt') queryClient.invalidateQueries({ queryKey: ['my-expenses'] });
+  else queryClient.invalidateQueries({ queryKey: ['visit', String(visitId)] });
 });
 
 /** Last line of defence: a crash in a screen shows this instead of closing the app. */
@@ -64,16 +71,22 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider client={queryClient} persistOptions={{ persister: queryPersister, maxAge: PERSIST_MAX_AGE, buster: Constants.expoConfig?.version ?? '', dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery } }}>
         <AuthProvider>
-          <StatusBar style="dark" />
-          <RootNavigator />
-          <StatusPill />
-          <Toaster />
+          <AppearanceProvider>
+            <ThemedStatusBar />
+            <RootNavigator />
+            <StatusPill />
+            <Toaster />
+          </AppearanceProvider>
         </AuthProvider>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </SafeAreaProvider>
   );
+}
+
+function ThemedStatusBar() {
+  return <StatusBar style={useAppearance().scheme === 'dark' ? 'light' : 'dark'} />;
 }
 
 function RootNavigator() {
@@ -121,11 +134,17 @@ function useNotificationTaps(signedIn: boolean) {
   }, [signedIn]);
 }
 
-/** FCM can rotate the device token; keep the server's copy current. */
+/**
+ * FCM can rotate the device token; send the new one to the server. Uses the token from
+ * the event itself and skips one the server already has (never re-fetches it: fetching
+ * fires this event again, which looped and flooded the API).
+ */
 function usePushTokenRefresh(signedIn: boolean) {
   useEffect(() => {
     if (!signedIn) return;
-    const sub = Notifications.addPushTokenListener(() => registerForPush());
+    const sub = Notifications.addPushTokenListener((t) => {
+      syncPushToken(String(t.data)).catch(() => undefined);
+    });
     return () => sub.remove();
   }, [signedIn]);
 }
@@ -165,7 +184,7 @@ function UpdateBanner() {
   }, []);
   if (!needed) return null;
   return (
-    <Pressable onPress={() => Linking.openURL('market://details?id=com.servon.technician').catch(() => undefined)} style={{ backgroundColor: colors.amber, paddingTop: 44, paddingBottom: 10, paddingHorizontal: 16 }}>
+    <Pressable onPress={() => Linking.openURL('market://details?id=com.servon.technician').catch(() => undefined)} style={{ backgroundColor: '#B45309', paddingTop: 44, paddingBottom: 10, paddingHorizontal: 16 }}>
       <Text style={{ color: '#fff', fontWeight: '600' }}>A newer version of the Servon app is required. Tap to update.</Text>
     </Pressable>
   );

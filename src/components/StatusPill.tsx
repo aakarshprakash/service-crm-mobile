@@ -1,6 +1,7 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNetworkState } from 'expo-network';
+import { useConnectivity } from '@/lib/connectivity';
 import { useUploads } from '@/lib/uploads';
 import { Icon } from './ui';
 import { colors } from './theme';
@@ -11,9 +12,9 @@ import { colors } from './theme';
  */
 export function StatusPill() {
   const insets = useSafeAreaInsets();
-  const net = useNetworkState();
+  const { offline, noNetwork } = useConnectivity();
   const uploads = useUploads();
-  const offline = net.isConnected === false || net.isInternetReachable === false;
+
   const failed = uploads.filter((u) => u.status === 'failed').length;
   const waiting = uploads.length - failed;
 
@@ -25,7 +26,8 @@ export function StatusPill() {
   if (offline) {
     icon = 'cloud-offline-outline';
     tone = colors.amber;
-    text = waiting ? `Offline · ${waiting} upload${waiting > 1 ? 's' : ''} saved on phone` : 'You are offline';
+    const status = noNetwork ? 'You are offline' : 'Can’t reach the server';
+    text = waiting ? `${status} · ${waiting} upload${waiting > 1 ? 's' : ''} saved on phone` : status;
   } else if (failed) {
     icon = 'alert-circle-outline';
     tone = colors.red;
@@ -39,7 +41,7 @@ export function StatusPill() {
       <View
         style={{
           flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999,
-          backgroundColor: '#fff', borderWidth: 1, borderColor: colors.border,
+          backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
           shadowColor: '#0F172A', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4,
         }}
       >

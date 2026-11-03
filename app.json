@@ -2,11 +2,11 @@
   "expo": {
     "name": "Servon Technician",
     "slug": "servon-technician",
-    "version": "2.1.1",
+    "version": "2.3.0",
     "scheme": "servon",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "backgroundColor": "#F8FAFC",
     "ios": {
       "supportsTablet": true,
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "com.servon.technician",
-      "versionCode": 211,
+      "versionCode": 230,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -25,10 +25,11 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "CAMERA",
-        "POST_NOTIFICATIONS"
+        "RECORD_AUDIO",
+        "POST_NOTIFICATIONS",
+        "USE_BIOMETRIC"
       ],
       "blockedPermissions": [
-        "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_BACKGROUND_LOCATION"
       ],
       "softwareKeyboardLayoutMode": "resize",
@@ -46,6 +47,12 @@
       "expo-secure-store",
       "expo-sharing",
       [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Servon uses Face ID to sign you in without your password."
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "Servon uses your location when you punch in, start an on-site visit or complete a job."
@@ -55,8 +62,7 @@
         "expo-image-picker",
         {
           "cameraPermission": "Servon uses the camera to photograph the unit, serial number, parts and bills for the job.",
-          "photosPermission": "Servon lets you attach existing photos of the unit, parts or bills to a job.",
-          "microphonePermission": false
+          "photosPermission": "Servon lets you attach existing photos of the unit, parts or bills to a job."
         }
       ],
       [
@@ -67,7 +73,30 @@
           "defaultChannel": "default"
         }
       ],
-      "expo-font",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "node_modules/@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf",
+            "node_modules/@expo-google-fonts/inter/500Medium/Inter_500Medium.ttf",
+            "node_modules/@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf",
+            "node_modules/@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf",
+            "node_modules/@expo-google-fonts/inter/800ExtraBold/Inter_800ExtraBold.ttf"
+          ]
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Servon uses the camera to photograph the job and scan serial-number barcodes."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Servon records voice notes about the job when you tap Record."
+        }
+      ],
       [
         "expo-build-properties",
         {

@@ -46,7 +46,7 @@ export function CollectPayment({ invoiceId, due, note, branchId, onClose, onDone
         </Field>
         {form.method === 'upi' && <Button title="Show UPI QR to customer" variant="secondary" icon="qr-code-outline" onPress={() => setShowQr(true)} disabled={!amount} />}
         {form.method !== 'cash' && (
-          <Field label={form.method === 'cheque' ? 'Cheque number' : form.method === 'upi' ? 'UPI reference' : 'UTR / reference'} required error={e('reference_no')}>
+          <Field label={form.method === 'cheque' ? 'Cheque number' : form.method === 'upi' ? 'UPI reference (optional)' : 'UTR / reference'} required={form.method !== 'upi'} error={e('reference_no')}>
             <Input value={form.reference_no} autoCapitalize="characters" onChangeText={(v) => setForm({ ...form, reference_no: v })} />
           </Field>
         )}

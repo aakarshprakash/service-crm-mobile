@@ -10,5 +10,12 @@ module.exports = ({ config }) => {
   if (fs.existsSync(googleServices)) {
     config.android = { ...config.android, googleServicesFile: googleServices };
   }
+  // Plain HTTP is only for a local dev server; release builds talk to the HTTPS API and refuse cleartext.
+  const cleartext = (process.env.EXPO_PUBLIC_API_URL ?? '').startsWith('http://');
+  config.plugins = config.plugins.map((p) =>
+    Array.isArray(p) && p[0] === 'expo-build-properties' ? [p[0], { ...p[1], android: { ...p[1].android, usesCleartextTraffic: cleartext } }] : p,
+  );
+  // Cached jobs and customer details must not be copied to cloud backups.
+  config.android = { ...config.android, allowBackup: false };
   return config;
 };

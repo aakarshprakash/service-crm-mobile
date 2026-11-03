@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from '@/components/Text';
 import { useQuery } from '@tanstack/react-query';
+import { router } from 'expo-router';
 import { api, type Envelope, type Paginated } from '@/lib/api';
 import { fieldError, useApiMutation } from '@/lib/hooks';
 import { date, METHOD_LABEL, money, time, toMajor, toMinor, today } from '@/lib/format';
 import type { CashSummary } from '@/lib/types';
-import { Badge, Button, Card, ErrorView, Field, Input, Loading, Muted, Row, Screen } from '@/components/ui';
+import { Badge, Button, Card, ErrorView, Field, Input, ListRow, Loading, Muted, Row, Screen } from '@/components/ui';
 import { colors } from '@/components/theme';
 
 interface CashCloseRow { id: number; close_date: string; expected_in_hand: number; amount_confirmed: number; status: string }
@@ -25,13 +27,13 @@ export default function Cash() {
   });
   const differs = s && toMinor(declared) !== s.expected_in_hand;
 
-  if (q.isLoading) return <Loading />;
-  if (q.error || !s) return <ErrorView error={q.error} onRetry={q.refetch} />;
+  if (q.isPending) return <Loading />;
+  if (!s) return <ErrorView error={q.error} onRetry={q.refetch} />;
 
   return (
     <Screen refreshing={q.isRefetching} onRefresh={() => { q.refetch(); history.refetch(); }}>
       {s.pending_dates.length > 0 && s.pending_dates[0] !== day && (
-        <Card style={{ backgroundColor: colors.amberSoft, borderColor: '#FDE68A' }}>
+        <Card style={{ backgroundColor: colors.amberSoft, borderColor: colors.amberBorder }}>
           <Text style={{ color: colors.amber, fontWeight: '600' }}>Earlier days are still open: {s.pending_dates.map(date).join(', ')}.</Text>
           <Button title={`Close ${date(s.pending_dates[0])} first`} variant="secondary" size="sm" style={{ marginTop: 10 }} onPress={() => setDay(s.pending_dates[0]!)} />
         </Card>
@@ -41,6 +43,7 @@ export default function Cash() {
         <Row k="Cash collected" v={money(s.cash)} />
         <Row k="Cheques collected" v={money(s.cheque)} />
         <Row k="UPI / bank (no hand-over)" v={money(s.digital)} vStyle={{ color: colors.muted }} />
+        {!!s.expenses && <Row k="Expenses paid from cash" v={`− ${money(s.expenses)}`} vStyle={{ color: colors.red }} />}
         <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 6 }} />
         <Row k="You should be holding" v={money(s.expected_in_hand)} strong />
       </Card>
@@ -67,6 +70,38 @@ export default function Cash() {
         </Card>
       )}
 
+      <Card padded={false}>
+        <ListRow
+          first
+          icon="receipt-outline"
+          tone={colors.amber}
+          title="My expenses"
+          detail={s.expense_claims?.length ? `${s.expense_claims.length} paid from cash in this close` : 'Fuel, parking, parts bought locally'}
+          onPress={() => router.push('/expenses')}
+        />
+        <ListRow icon="add-circle-outline" title="Add an expense" onPress={() => router.push('/expenses?new=1')} />
+      </Card>
+
+      {!!s.expense_claims?.length && (
+        <Card title="Expenses paid from cash" padded={false}>
+          {s.expense_claims.map((c, i) => (
+            <View key={c.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: '600' }}>{c.category ?? 'Expense'}{c.call_id ? ` · ${c.call_id}` : ''}</Text>
+                <Muted>
+                  {date(c.claim_date)}
+                  {c.description ? ` · ${c.description}` : ''}
+                </Muted>
+              </View>
+              <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                <Text style={{ fontWeight: '600', color: colors.text }}>{money(c.amount)}</Text>
+                <Badge text={c.status} />
+              </View>
+            </View>
+          ))}
+        </Card>
+      )}
+
       {s.payments.length > 0 && (
         <Card title="Today’s collections" padded={false}>
           {s.payments.map((p, i) => (
@@ -74,6 +109,7 @@ export default function Cash() {
               <View style={{ flex: 1 }}>
                 <Text style={{ color: colors.text, fontWeight: '600' }}>{p.customer ?? '—'}</Text>
                 <Muted>
+                  {p.call_id ? `Job ${p.call_id} · ` : ''}
                   {p.receipt_number} · {METHOD_LABEL[p.method] ?? p.method} · {time(p.paid_at)}
                 </Muted>
               </View>

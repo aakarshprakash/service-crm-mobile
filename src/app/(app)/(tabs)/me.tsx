@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, Switch, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { api, openPdf, type Envelope } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { useAppearance, type AppearancePref } from '@/lib/appearance';
+import { authenticate, biometricAvailable, biometricEnabledFor, setBiometricFor } from '@/lib/biometric';
 import { getPushStatus, registerForPush, type PushStatus } from '@/lib/push';
 import { useUploads } from '@/lib/uploads';
 import { fieldError, useApiMutation, useLookups } from '@/lib/hooks';
-import { date, hours, money, monthName, num, today } from '@/lib/format';
+import { date, hours, money, monthName, num, relative, today } from '@/lib/format';
 import type { AttendanceDay, LeaveBalance, LeaveRequest, Payslip } from '@/lib/types';
 import { toast } from '@/components/toast';
+import { ChangePasswordForm } from '@/components/ChangePassword';
 import { Badge, Button, Card, Field, Icon, Input, Loading, Muted, Screen, Segmented, Sheet } from '@/components/ui';
 import { colors, dayTone } from '@/components/theme';
 
@@ -21,7 +25,7 @@ function shiftMonth(month: string, n: number) {
 
 /** Self service: attendance calendar, leave, payslips and account. */
 export default function Me() {
-  const { user, logout, server } = useAuth();
+  const { user, logout } = useAuth();
   const uploads = useUploads();
   const confirmLogout = () =>
     Alert.alert(
@@ -56,9 +60,10 @@ export default function Me() {
       <Leave />
       <Payslips />
       <PushCard />
+      <SecurityCard />
+      <AppearanceCard />
       <Card>
-        <Muted>Server: {server.replace(/^https?:\/\//, '')}</Muted>
-        <Muted>App version {Constants.expoConfig?.version}</Muted>
+        <Muted>App version {Constants.expoConfig?.version} · Powered by <Text style={{ fontWeight: '700', letterSpacing: 1.5 }}>SYSNAC</Text></Muted>
         <Button
           title="Sign out"
           variant="secondary"
@@ -68,6 +73,81 @@ export default function Me() {
         />
       </Card>
     </Screen>
+  );
+}
+
+interface MySession { id: number; app: 'web' | 'technician' | 'manager'; device: string; last_used_at: string | null; signed_in_at: string; current: boolean }
+
+/** Password and the phones / browsers this account is signed in on. */
+function SecurityCard() {
+  const { user } = useAuth();
+  const [changing, setChanging] = useState(false);
+  const [bio, setBio] = useState<{ available: boolean; on: boolean } | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([biometricAvailable(), biometricEnabledFor(user.id)]).then(([available, on]) => setBio({ available, on }));
+  }, [user]);
+  const toggleBio = async (on: boolean) => {
+    if (!user) return;
+    if (on && !(await authenticate('Confirm it’s you'))) return;
+    await setBiometricFor(on ? user.id : null);
+    setBio((b) => (b ? { ...b, on } : b));
+    toast.success(on ? 'You can now open the app with your fingerprint or face.' : 'Fingerprint and face sign-in turned off.');
+  };
+  const q = useQuery({ queryKey: ['my-sessions'], queryFn: () => api.get<Envelope<MySession[]>>('/auth/sessions').then((r) => r.data) });
+  const others = useApiMutation(() => api.post<Envelope<{ signed_out: number }>>('/auth/sessions/sign-out-others'), { invalidate: [['my-sessions']], success: (r) => (r as { message?: string }).message ?? 'Done' });
+  const list = q.data ?? [];
+  return (
+    <Card title="Security" padded={false}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+        <Icon name="finger-print" color={colors.brand} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.text, fontWeight: '600' }}>Sign in with fingerprint or face</Text>
+          <Muted style={{ fontSize: 12 }}>{bio && !bio.available ? 'Set up a fingerprint or face unlock in your phone’s settings first.' : 'No password needed to open the app on this phone.'}</Muted>
+        </View>
+        <Switch accessibilityLabel="Sign in with fingerprint or face" value={!!bio?.on} disabled={!bio?.available} onValueChange={toggleBio} trackColor={{ true: colors.brand }} thumbColor={colors.onBrand} />
+      </View>
+      {list.map((s, i) => (
+        <View key={s.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
+          <Icon name={s.app === 'web' ? 'desktop-outline' : 'phone-portrait-outline'} color={colors.muted} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.text, fontWeight: '600' }} numberOfLines={1}>
+              {s.device}
+              {s.current ? '  ·  this phone' : ''}
+            </Text>
+            <Muted style={{ fontSize: 12 }}>
+              {s.app === 'web' ? 'Web app' : s.app === 'manager' ? 'Manager app' : 'Technician app'} · {s.last_used_at ? `active ${relative(s.last_used_at)}` : `signed in ${relative(s.signed_in_at)}`}
+            </Muted>
+          </View>
+        </View>
+      ))}
+      <View style={{ padding: 16, gap: 8, borderTopWidth: list.length ? 1 : 0, borderTopColor: colors.border }}>
+        {list.length > 1 && <Button title="Sign out other devices" variant="secondary" icon="log-out-outline" size="sm" loading={others.isPending} onPress={() => others.mutate(undefined)} />}
+        <Button title="Change password" variant="secondary" icon="key-outline" size="sm" onPress={() => setChanging(true)} />
+      </View>
+      <Sheet open={changing} onClose={() => setChanging(false)} title="Change password">
+        <ChangePasswordForm onDone={() => { setChanging(false); q.refetch(); }} />
+      </Sheet>
+    </Card>
+  );
+}
+
+/** Light, dark, or the same as the phone. */
+function AppearanceCard() {
+  const { pref, setPref } = useAppearance();
+  return (
+    <Card title="Appearance">
+      <Segmented<AppearancePref>
+        value={pref}
+        onChange={setPref}
+        options={[
+          { value: 'system', label: 'System', icon: 'phone-portrait-outline' },
+          { value: 'light', label: 'Light', icon: 'sunny-outline' },
+          { value: 'dark', label: 'Dark', icon: 'moon-outline' },
+        ]}
+      />
+      <Muted style={{ fontSize: 12 }}>System follows your phone’s dark mode setting. Dark mode is easier on the eyes at night and saves battery.</Muted>
+    </Card>
   );
 }
 
@@ -110,7 +190,7 @@ function Attendance() {
   const [month, setMonth] = useState(today().slice(0, 7));
   const q = useQuery({
     queryKey: ['my-attendance', month],
-    queryFn: () => api.get<Envelope<{ days: AttendanceDay[]; summary: { present: number; paid_leave: number; unpaid_leave: number; absent: number; minutes: number } }>>('/my/attendance', { month }).then((r) => r.data),
+    queryFn: () => api.get<Envelope<{ days: AttendanceDay[]; summary: { present: number; paid_leave: number; unpaid_leave: number; absent: number; minutes: number; late_days?: number } }>>('/my/attendance', { month }).then((r) => r.data),
   });
   const d = q.data;
   const first = d?.days[0] ? new Date(d.days[0].date + 'T00:00:00').getDay() : 0;
@@ -152,6 +232,7 @@ function Attendance() {
                   <View style={{ aspectRatio: 1, borderRadius: 8, backgroundColor: t.bg, alignItems: 'center', justifyContent: 'center', borderWidth: day.date === today() ? 2 : 0, borderColor: colors.brand }}>
                     <Text style={{ color: t.fg, fontWeight: '700', fontSize: 13 }}>{Number(day.date.slice(8))}</Text>
                     <Text style={{ color: t.fg, fontSize: 9 }}>{day.code}</Text>
+                    {(!!day.late_minutes || !!day.early_minutes) && <View style={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: 3, backgroundColor: colors.red }} />}
                   </View>
                 </Pressable>
               );
@@ -163,6 +244,7 @@ function Attendance() {
                 ['Present', num(d.summary.present)],
                 ['Leave', num(d.summary.paid_leave)],
                 ['Absent', num(d.summary.absent + d.summary.unpaid_leave)],
+                ['Late', String(d.summary.late_days ?? 0)],
                 ['Hours', hours(d.summary.minutes)],
               ] as const
             ).map(([k, v]) => (
@@ -183,6 +265,16 @@ function Attendance() {
                 {selected.leave_type ? ` · ${selected.leave_type}` : ''}
                 {selected.holiday ? ` · ${selected.holiday}` : ''}
               </Muted>
+              {!!selected.shift && (
+                <Muted style={{ fontSize: 12, marginTop: 2 }}>
+                  {selected.shift.name} shift {selected.shift.start}–{selected.shift.end}
+                </Muted>
+              )}
+              {(!!selected.late_minutes || !!selected.early_minutes || !!selected.extra_minutes) && (
+                <Text style={{ fontSize: 13, marginTop: 2, color: selected.late_minutes || selected.early_minutes ? colors.amber : colors.green }}>
+                  {[selected.late_minutes && `${hours(selected.late_minutes)} late`, selected.early_minutes && `left ${hours(selected.early_minutes)} early`, selected.extra_minutes && `${hours(selected.extra_minutes)} extra`].filter(Boolean).join(' · ')}
+                </Text>
+              )}
             </View>
           )}
         </>
@@ -199,7 +291,7 @@ function Leave() {
   return (
     <Card title="Leave" right={<Button title="Apply" size="sm" icon="add" onPress={() => setApplying(true)} />}>
       {!d ? (
-        <Loading />
+        q.error ? <Muted>{q.error.message}</Muted> : <Loading />
       ) : (
         <View style={{ gap: 12 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -274,7 +366,7 @@ function ApplyLeave({ onClose }: { onClose: () => void }) {
             <Pressable
               key={t.id}
               onPress={() => setForm({ ...form, leave_type_id: t.id })}
-              style={{ borderWidth: 1, borderColor: form.leave_type_id === t.id ? colors.brand : colors.border, backgroundColor: form.leave_type_id === t.id ? colors.brandSoft : '#fff', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}
+              style={{ borderWidth: 1, borderColor: form.leave_type_id === t.id ? colors.brand : colors.border, backgroundColor: form.leave_type_id === t.id ? colors.brandSoft : colors.card, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}
             >
               <Text style={{ color: form.leave_type_id === t.id ? colors.brand : colors.text, fontWeight: '600' }}>
                 {t.name}
@@ -326,12 +418,12 @@ function Payslips() {
   return (
     <Card title="Payslips" padded={false}>
       {!q.data ? (
-        <Loading />
+        q.error ? <Muted>{q.error.message}</Muted> : <Loading />
       ) : !q.data.length ? (
         <Muted style={{ padding: 16 }}>Payslips appear here once payroll for a month is finalized.</Muted>
       ) : (
         q.data.map((p, i) => (
-          <Pressable key={p.id} onPress={() => open(p)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, backgroundColor: pressed ? colors.bg : '#fff' })}>
+          <Pressable key={p.id} onPress={() => open(p)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, backgroundColor: pressed ? colors.bg : colors.card })}>
             <Icon name="document-text-outline" color={colors.brand} />
             <View style={{ flex: 1 }}>
               <Text style={{ fontWeight: '600', color: colors.text }}>{p.run && monthName(p.run.month)}</Text>

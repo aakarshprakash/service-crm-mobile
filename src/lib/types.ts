@@ -1,6 +1,6 @@
 /** API shapes used by the technician app (subset of the web app's types). */
 
-export type JobStatus = 'open' | 'in_progress' | 'pending' | 'completed' | 'cancelled';
+export type JobStatus = 'open' | 'in_progress' | 'pending' | 'part_pending' | 'cancel_requested' | 'completed' | 'cancelled';
 export type Priority = 'low' | 'medium' | 'high';
 
 export interface Named {
@@ -28,6 +28,8 @@ export interface User {
   branch_id: number | null;
   punch_status: 'in' | 'out';
   punched_at: string | null;
+  /** Signed in with a temporary password from the admin: must choose their own first. */
+  must_change_password?: boolean;
   abilities: string[];
   tenant: Tenant | null;
 }
@@ -43,6 +45,8 @@ export interface Customer {
   pincode: string | null;
   lat: number | null;
   lng: number | null;
+  location_updated_at?: string | null;
+  location_source?: 'customer' | 'office' | 'technician' | null;
 }
 
 export interface CustomerProduct {
@@ -51,8 +55,13 @@ export interface CustomerProduct {
   outdoor_serial_no: string | null;
   purchase_date: string | null;
   warranty_type: string | null;
+  warranty_expiry?: string | null;
   under_warranty?: boolean;
-  product?: { id: number; model_name: string; brand?: Named | null } | null;
+  /** The model as typed, e.g. from the unit's label. */
+  model_no?: string | null;
+  product?: { id: number; model_name: string; brand?: Named | null; category?: Named | null } | null;
+  brand?: Named | null;
+  category?: Named | null;
   dealer?: Named | null;
 }
 
@@ -62,7 +71,29 @@ export interface Usage {
   quantity: number;
   unit_price: number;
   total_price: number;
+  /** Came from the parts allocated to the technician, not the branch's shelf. */
+  from_technician_stock?: boolean;
+  created_at?: string;
   item?: { id: number; code: string; name: string; unit_of_measure: string };
+}
+
+/** A part allocated to this technician. */
+export interface MyPart {
+  id: number;
+  item_id: number;
+  quantity: number;
+  item?: { id: number; code: string; name: string; type: 'spare' | 'consumable'; unit_of_measure: string; unit_price: number };
+}
+
+export interface MyPartMove {
+  id: number;
+  type: 'allocated' | 'returned' | 'used' | 'usage_undone';
+  quantity: number;
+  balance_after: number;
+  remarks: string | null;
+  created_at: string;
+  item?: { id: number; code: string; name: string; unit_of_measure: string };
+  job?: { id: number; crm_call_id: string } | null;
 }
 
 export interface JobImage {
@@ -89,6 +120,31 @@ export interface Visit {
   technician?: Named;
   inventory_usage?: Usage[];
   images?: JobImage[];
+  voice_notes?: VoiceNote[];
+}
+
+export interface VoiceNote {
+  id: number;
+  job_visit_id: number | null;
+  duration_seconds: number;
+  url: string;
+  created_at: string;
+}
+
+export interface ExpenseClaim {
+  id: number;
+  job_id: number | null;
+  expense_category_id: number;
+  claim_date: string;
+  amount: number;
+  paid_from: 'cash_in_hand' | 'own_money';
+  description: string | null;
+  receipt_url: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  decision_note: string | null;
+  cash_close_id: number | null;
+  category?: Named | null;
+  job?: { id: number; crm_call_id: string } | null;
 }
 
 export interface Payment {
@@ -99,6 +155,7 @@ export interface Payment {
   reference_no: string | null;
   status: string;
   paid_at: string | null;
+  collector?: Named | null;
 }
 
 export interface Invoice {
@@ -109,7 +166,36 @@ export interface Invoice {
   paid_amount: number;
   balance_amount: number;
   payment_status: 'unpaid' | 'partial' | 'paid';
+  generated_at?: string | null;
+  is_gst?: boolean;
+  taxable_amount?: number;
+  cgst_amount?: number;
+  sgst_amount?: number;
+  igst_amount?: number;
+  payments?: Payment[];
   upi?: { vpa: string; payee_name: string; amount: number; link: string } | null;
+}
+
+/** An earlier finished visit on the same product (or customer), shown on the job. */
+export interface PreviousService {
+  job_id: number;
+  crm_call_id: string | null;
+  date: string;
+  status: string;
+  complaint: string | null;
+  action_taken: string | null;
+  summary: string | null;
+  technician: string | null;
+  total_charge: number;
+}
+
+/** Punch rules for this technician, from the dashboard. */
+export interface PunchRules {
+  geofence: 'off' | 'flag' | 'enforce';
+  branch: { name: string; lat: number | null; lng: number | null; radius: number | null } | null;
+  require_location: boolean;
+  require_punch_in: boolean;
+  shift?: { name: string; start: string; end: string; grace_minutes: number } | null;
 }
 
 export interface Job {
@@ -118,10 +204,25 @@ export interface Job {
   status: JobStatus;
   priority: Priority;
   call_type: string;
+  service_type: string | null;
   scheduled_at: string | null;
+  created_at: string;
+  /** Whole days since the job was logged. */
+  call_age_days?: number;
   branch_id: number | null;
   complaint_type_id: number | null;
   complaint_details: string | null;
+  /** Collected from the customer by the technician. */
+  customer_satisfaction_code?: string | null;
+  /** Set by the office on the job, or from the product's category. */
+  product_category?: string | null;
+  /** Which part a part-pending job is waiting for. */
+  part_pending_note?: string | null;
+  /** Why the technician asked to cancel, while the office decides. */
+  cancel_reason?: string | null;
+  previous_services?: PreviousService[];
+  /** Status changes and the updates added to the job (status "note"), oldest first. */
+  status_history?: { id: number; status: string; remarks: string | null; changed_at: string; user?: Named | null }[];
   customer?: Customer;
   customer_product?: CustomerProduct | null;
   complaint_type?: Named | null;
@@ -151,9 +252,20 @@ export interface UpiAccount {
 }
 
 export interface Lookups {
+  /** Models typed on earlier units, most recent first. */
+  model_suggestions?: { model_no: string; brand_id: number | null }[];
   complaint_types: Named[];
   action_taken_options: Named[];
+  categories?: Named[];
+  brands?: Named[];
+  dealers?: Named[];
+  billing?: { gst_registered: boolean; job_bills?: 'gst' | 'non_gst' | null };
+  /** Photo sections on a visit, set by the company under Settings. */
+  photo_types?: { key: string; label: string }[];
+  /** Names of sections since removed, for the photos already taken under them. */
+  photo_labels?: Record<string, string>;
   upi_accounts?: UpiAccount[];
+  expense_categories?: Named[];
   leave_types?: { id: number; name: string; code: string | null; annual_quota: number; is_paid: boolean }[];
 }
 
@@ -165,8 +277,10 @@ export interface CashSummary {
   cheque: number;
   digital: number;
   credit: number;
+  expenses?: number;
   expected_in_hand: number;
   pending_dates: string[];
+  expense_claims?: { id: number; claim_date: string; amount: number; status: string; category: string | null; call_id: string | null; description: string | null }[];
   payments: { id: number; receipt_number: string | null; method: string; amount: number; paid_at: string; call_id: string | null; customer: string | null }[];
 }
 
@@ -179,6 +293,10 @@ export interface AttendanceDay {
   in: string | null;
   out: string | null;
   minutes: number;
+  late_minutes?: number;
+  early_minutes?: number;
+  extra_minutes?: number;
+  shift?: { name: string; start: string; end: string } | null;
   leave_type?: string | null;
   holiday?: string | null;
 }

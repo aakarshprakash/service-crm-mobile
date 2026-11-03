@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Linking, Pressable, Share, Text, View } from 'react-native';
+import { Linking, Pressable, Share, View } from 'react-native';
+import { Text } from '@/components/Text';
 import { useLookups } from '@/lib/hooks';
 import { money } from '@/lib/format';
 import { pickUpiAccount, upiLink } from '@/lib/upi';
@@ -12,7 +13,7 @@ import { Button, Loading, Muted, Sheet } from './ui';
  * the payment as UPI with the transaction reference from the customer's app.
  */
 export function UpiSheet({ open, onClose, amount, note, branchId }: { open: boolean; onClose: () => void; amount: number; note: string; branchId?: number | null }) {
-  const { data, isLoading } = useLookups();
+  const { data, isPending } = useLookups();
   const accounts = data?.upi_accounts ?? [];
   const [accountId, setAccountId] = useState<number | null>(null);
   const account = accounts.find((a) => a.id === accountId) ?? pickUpiAccount(accounts, branchId);
@@ -32,7 +33,7 @@ export function UpiSheet({ open, onClose, amount, note, branchId }: { open: bool
         ) : undefined
       }
     >
-      {isLoading ? (
+      {isPending ? (
         <Loading />
       ) : !account ? (
         <Muted>No UPI ID is set up. Ask the office to add one in Settings → Master data → UPI accounts.</Muted>
@@ -44,7 +45,7 @@ export function UpiSheet({ open, onClose, amount, note, branchId }: { open: bool
                 <Pressable
                   key={a.id}
                   onPress={() => setAccountId(a.id)}
-                  style={{ borderWidth: 1, borderColor: a.id === account.id ? colors.brand : colors.border, backgroundColor: a.id === account.id ? colors.brandSoft : '#fff', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}
+                  style={{ borderWidth: 1, borderColor: a.id === account.id ? colors.brand : colors.border, backgroundColor: a.id === account.id ? colors.brandSoft : colors.card, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}
                 >
                   <Text style={{ color: a.id === account.id ? colors.brand : colors.muted, fontWeight: '600', fontSize: 13 }}>{a.name}</Text>
                 </Pressable>
