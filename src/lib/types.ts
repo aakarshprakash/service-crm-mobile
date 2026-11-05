@@ -100,6 +100,8 @@ export interface JobImage {
   id: number;
   type: string;
   url: string;
+  job_visit_id?: number | null;
+  created_at?: string;
 }
 
 export interface Visit {
@@ -109,7 +111,10 @@ export interface Visit {
   start_time: string;
   end_time: string | null;
   status: string;
+  /** Closed by the end-of-day setting while still running. */
+  auto_closed?: boolean;
   service_summary: string | null;
+  action_taken?: Named | null;
   labour_charge: number;
   spare_charge: number;
   total_charge: number;
@@ -220,6 +225,10 @@ export interface Job {
   part_pending_note?: string | null;
   /** Why the technician asked to cancel, while the office decides. */
   cancel_reason?: string | null;
+  /** Left pending / part pending: the next visit waits for the office's approval. */
+  needs_resume_approval?: boolean;
+  resume_requested_at?: string | null;
+  resume_request_note?: string | null;
   previous_services?: PreviousService[];
   /** Status changes and the updates added to the job (status "note"), oldest first. */
   status_history?: { id: number; status: string; remarks: string | null; changed_at: string; user?: Named | null }[];
@@ -228,6 +237,9 @@ export interface Job {
   complaint_type?: Named | null;
   complaint_summary?: Named | null;
   service_location?: Named | null;
+  branch?: Named | null;
+  /** Photos from every visit on the job, so earlier work stays visible on a return visit. */
+  images?: JobImage[];
   visits?: Visit[];
   invoice?: Invoice | null;
 }

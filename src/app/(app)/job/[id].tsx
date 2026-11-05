@@ -5,16 +5,17 @@ import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Envelope } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { callAge, date, dateTime, label, money, productName, qty, schedule } from '@/lib/format';
+import { callAge, date, dateTime, label, money, qty, schedule } from '@/lib/format';
 import { fieldError, isGone, useApiMutation } from '@/lib/hooks';
 import { DASHBOARD_KEY, useTechDashboard } from '@/lib/punch';
 import type { Job } from '@/lib/types';
 import { toast } from '@/components/toast';
-import { Badge, Banner, BottomBar, Button, Card, ErrorView, Field, FlowSteps, Icon, Input, Loading, Muted, Row, Screen, Sheet, type IconName } from '@/components/ui';
+import { Badge, Banner, BottomBar, Button, Card, ErrorView, Field, FlowSteps, Icon, Input, Loading, Muted, Screen, Sheet, type IconName } from '@/components/ui';
 import { BillSummary } from '@/components/BillSummary';
 import { CollectPayment } from '@/components/CollectPayment';
 import { CustomerLocationCard, useCollectLocation } from '@/components/CustomerLocation';
 import { JobAddress, JobTags, ScheduleChip } from '@/components/JobCard';
+import { ComplaintCard, EarlierPhotos, ProductCard, VisitInfoCard, brandOf, modelOf, productTypeOf } from '@/components/JobDetails';
 import { JobTimeline } from '@/components/JobTimeline';
 import { PunchFirst } from '@/components/PunchFirst';
 import { colors, radius } from '@/components/theme';
@@ -38,6 +39,7 @@ function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; 
   const [punchFirst, setPunchFirst] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const { collect, locating } = useCollectLocation(job);
 
   const active = job.visits?.find((v) => v.status === 'in_progress');
@@ -91,12 +93,26 @@ function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; 
           </View>
           <View>
             <Text style={{ color: colors.onBrand, fontSize: 20, fontWeight: '800' }}>{job.complaint_type?.name ?? 'Service'}</Text>
-            {!!productName(p) && <Text style={{ color: colors.onBrand, opacity: 0.8 }}>{productName(p)}</Text>}
+            {!!(brandOf(p) || modelOf(p) || productTypeOf(p) || job.product_category) && (
+              <Text style={{ color: colors.onBrand, opacity: 0.85 }}>{[brandOf(p), productTypeOf(p) ?? job.product_category, modelOf(p)].filter(Boolean).join(' · ')}</Text>
+            )}
           </View>
           <ScheduleChip job={job} size="lg" />
         </View>
 
         {job.status === 'part_pending' && job.part_pending_note && <Banner tone="danger" icon="cube-outline" title="Waiting for a part" message={job.part_pending_note} />}
+        {job.needs_resume_approval && (
+          <Banner
+            tone="warn"
+            icon="hourglass-outline"
+            title="Waiting for the office to approve the next visit"
+            message={
+              job.resume_requested_at
+                ? `You asked on ${dateTime(job.resume_requested_at)}${job.resume_request_note ? `: “${job.resume_request_note}”` : ''}. You’ll get a notification when it’s approved.`
+                : `You left this job ${label(job.status).toLowerCase()}. It stays with you; ask the office when you’re ready to go back.`
+            }
+          />
+        )}
         {job.status === 'cancel_requested' && <Banner tone="danger" icon="hourglass-outline" title="Waiting for the office to approve the cancellation" message={job.cancel_reason ? `Your reason: ${job.cancel_reason}` : null} />}
 
         <Card>
@@ -119,26 +135,14 @@ function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; 
         {!finished && job.status !== 'cancel_requested' && <CustomerLocationCard job={job} />}
         {locating && <Muted style={{ textAlign: 'center' }}>Getting your location…</Muted>}
 
-        <Card title="Complaint & product">
-          <View style={{ marginBottom: 8 }}>
-            <JobTags job={job} />
-          </View>
-          {job.complaint_details && (
-            <View style={{ marginBottom: 8, backgroundColor: colors.bg, borderRadius: 10, padding: 12 }}>
-              <Text style={{ color: colors.text }}>{job.complaint_details}</Text>
-            </View>
-          )}
-          <Row k="Complaint" v={job.complaint_type?.name ?? '—'} />
-          <Row k="Summary" v={job.complaint_summary?.name ?? '—'} />
-          <Row k="Category" v={job.product_category ?? p?.category?.name ?? p?.product?.category?.name ?? '—'} />
-          <Row k="Product" v={productName(p) || '—'} />
-          <Row k="Serial no." v={p?.serial_no ?? '—'} />
-          {p?.outdoor_serial_no && <Row k="Outdoor serial" v={p.outdoor_serial_no} />}
-          <Row k="Warranty" v={p ? `${label(p.warranty_type)}${p.under_warranty === undefined ? '' : p.under_warranty ? ' · covered' : ' · expired'}` : '—'} />
-          <Row k="Purchased" v={date(p?.purchase_date)} />
-          <Row k="Logged" v={dateTime(job.created_at)} />
-          {job.customer_satisfaction_code && <Row k="Customer Satisfaction Code" v={job.customer_satisfaction_code} />}
-        </Card>
+        {/* The same fields, in the same order, as the office's job form: what to read before starting. */}
+        <View style={{ marginTop: 2 }}>
+          <JobTags job={job} />
+        </View>
+        <ComplaintCard job={job} title="Job summary" />
+        <ProductCard job={job} />
+        <VisitInfoCard job={job} />
+        <EarlierPhotos job={job} exceptVisitId={active?.id} title="Photos on this job" />
 
         <JobTimeline job={job} />
 
@@ -208,6 +212,14 @@ function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; 
         <BottomBar>
           <Button title="Continue service" size="lg" icon="play" style={{ flex: 1 }} onPress={() => router.push({ pathname: '/visit/[id]', params: { id: active.id, job: job.id } })} />
         </BottomBar>
+      ) : job.needs_resume_approval ? (
+        <BottomBar>
+          {job.resume_requested_at ? (
+            <Button title="Asked: waiting for approval" size="lg" icon="hourglass-outline" variant="secondary" style={{ flex: 1 }} onPress={() => setResuming(true)} />
+          ) : (
+            <Button title="Ask the office to resume" size="lg" icon="send" style={{ flex: 1 }} onPress={() => setResuming(true)} />
+          )}
+        </BottomBar>
       ) : (
         canStart && (
           <BottomBar>
@@ -237,6 +249,7 @@ function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; 
         />
       )}
       <CancelRequest job={job} open={cancelling} onClose={() => setCancelling(false)} />
+      <ResumeRequest job={job} open={resuming} onClose={() => setResuming(false)} />
     </>
   );
 }
@@ -276,6 +289,39 @@ function CancelRequest({ job, open, onClose }: { job: Job; open: boolean; onClos
   );
 }
 
+/** The job stays with the technician; the office decides when the next visit can go ahead. */
+function ResumeRequest({ job, open, onClose }: { job: Job; open: boolean; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [note, setNote] = useState('');
+  const m = useApiMutation(() => api.post(`/jobs/${job.id}/resume-request`, { note: note.trim() || null }), {
+    toastValidation: false,
+    success: 'Sent to the office for approval',
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tech-job', String(job.id)] });
+      setNote('');
+      onClose();
+    },
+  });
+  return (
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={job.resume_requested_at ? 'Ask again?' : 'Ask to resume this job'}
+      footer={
+        <>
+          <Button title="Go back" variant="secondary" style={{ flex: 1 }} onPress={onClose} />
+          <Button title={job.resume_requested_at ? 'Send again' : 'Send to office'} style={{ flex: 1 }} loading={m.isPending} onPress={() => m.mutate(undefined)} />
+        </>
+      }
+    >
+      <Muted>The job stays with you. Once the office approves, you can start the next visit. You’ll get a notification.</Muted>
+      <Field label="Note for the office (optional)" error={fieldError(m.error, 'note') ?? fieldError(m.error, 'job')}>
+        <Input multiline maxLength={500} value={note} onChangeText={setNote} placeholder="e.g. Part collected, customer free tomorrow morning" />
+      </Field>
+    </Sheet>
+  );
+}
+
 function Action({ icon, label: text, color, onPress }: { icon: IconName; label: string; color: string; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => ({ flex: 1, alignItems: 'center', gap: 4, paddingVertical: 10, borderRadius: 10, backgroundColor: pressed ? colors.pressed : colors.bg })}>
@@ -295,7 +341,6 @@ function mapsLink(job: Job, directions = false): string | null {
 async function shareJob(job: Job) {
   const c = job.customer;
   const p = job.customer_product;
-  const product = productName(p);
   const last = job.previous_services?.[0];
   const lines = [
     `Job ${job.crm_call_id} · ${label(job.status)} · ${label(job.priority)} priority`,
@@ -304,7 +349,7 @@ async function shareJob(job: Job) {
     `Address: ${[c?.address, c?.city, c?.pincode].filter(Boolean).join(', ') || '—'}`,
     mapsLink(job) && `Map: ${mapsLink(job)}`,
     `Complaint: ${job.complaint_type?.name ?? 'Service'}${job.complaint_details ? ` – ${job.complaint_details}` : ''}`,
-    product && `Product: ${product}${p?.serial_no ? ` · SN ${p.serial_no}` : ''}`,
+    (brandOf(p) || productTypeOf(p) || modelOf(p)) && `Unit: ${[brandOf(p) && `Brand ${brandOf(p)}`, productTypeOf(p) ?? job.product_category, modelOf(p) && `Model ${modelOf(p)}`].filter(Boolean).join(' · ')}${p?.serial_no ? ` · SN ${p.serial_no}` : ''}`,
     p && `Warranty: ${p.under_warranty ? `covered${p.warranty_expiry ? ` till ${date(p.warranty_expiry)}` : ''}` : p.warranty_type || p.warranty_expiry ? 'out of warranty' : 'not recorded'}${p.purchase_date ? ` · bought ${date(p.purchase_date)}` : ''}`,
     `Call type: ${label(job.call_type)}${job.call_age_days != null ? ` · ${callAge(job.call_age_days).toLowerCase()}` : ''}`,
     last && `Last service: ${date(last.date)}${last.action_taken ? ` · ${last.action_taken}` : ''}${last.summary ? ` – ${last.summary}` : ''}`,

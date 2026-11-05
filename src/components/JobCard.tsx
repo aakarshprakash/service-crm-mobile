@@ -2,7 +2,8 @@ import type { ReactElement } from 'react';
 import { Pressable, View } from 'react-native';
 import { router } from 'expo-router';
 import { Text } from '@/components/Text';
-import { callAge, date, label, productName, schedule } from '@/lib/format';
+import { callAge, date, label, schedule } from '@/lib/format';
+import { brandOf, modelOf, productTypeOf } from '@/components/JobDetails';
 import type { Job } from '@/lib/types';
 import { Badge, Icon, type IconName } from '@/components/ui';
 import { colors, radius } from '@/components/theme';
@@ -46,6 +47,7 @@ export function JobTags({ job }: { job: Job }) {
     else if (p.warranty_type || p.warranty_expiry) tags.push(<Tag key="w" icon="shield-outline" text="Out of warranty" tone={colors.amber} bg={colors.amberSoft} />);
     if (p.purchase_date) tags.push(<Tag key="pd" icon="bag-handle-outline" text={`Bought ${date(p.purchase_date)}`} />);
   }
+  if (job.needs_resume_approval) tags.push(<Tag key="resume" icon="hourglass-outline" text={job.resume_requested_at ? 'Asked office to resume' : 'Needs office approval'} tone={colors.amber} bg={colors.amberSoft} />);
   // Only known when the job came with the customer's coordinates.
   if (job.customer?.lat === null && !['completed', 'cancelled'].includes(job.status)) tags.push(<Tag key="loc" icon="location-outline" text="Location missing" tone={colors.amber} bg={colors.amberSoft} />);
   return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{tags}</View>;
@@ -67,7 +69,9 @@ export function JobAddress({ job, lines = 2 }: { job: Job; lines?: number }) {
 }
 
 export function JobCard({ job: j }: { job: Job }) {
-  const product = productName(j.customer_product);
+  const p = j.customer_product;
+  // Brand · product type · model, as the office's job form names them.
+  const product = [brandOf(p), productTypeOf(p) ?? j.product_category, modelOf(p)].filter(Boolean).join(' · ');
   const old = (j.call_age_days ?? 0) >= 7 ? colors.red : (j.call_age_days ?? 0) >= 3 ? colors.amber : colors.muted;
   return (
     <Pressable
