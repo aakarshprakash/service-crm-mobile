@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "Servon Technician",
-    "slug": "servon-technician",
-    "version": "2.3.0",
+    "slug": "servon",
+    "version": "2.3.1",
     "scheme": "servon",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "com.servon.technician",
-      "versionCode": 230,
+      "versionCode": 231,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -107,6 +107,13 @@
       ],
       "./plugins/withReleaseSigning",
       "./plugins/withShortCmakeObjectPaths"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "44728f11-002b-4409-bd5f-b877946122d5"
+      }
+    },
+    "owner": "sysnac"
   }
 }

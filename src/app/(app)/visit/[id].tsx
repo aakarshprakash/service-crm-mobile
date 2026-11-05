@@ -17,7 +17,7 @@ import { Badge, Banner, Button, Card, Empty, ErrorView, Field, FlowSteps, Icon, 
 import { BillSummary } from '@/components/BillSummary';
 import { UpiSheet } from '@/components/UpiSheet';
 import { SignaturePad } from '@/components/SignaturePad';
-import { ComplaintFields, ProductFields, callPayload, initialCallForm, type CallForm } from '@/components/CallDetails';
+import { ComplaintFields, ProductFields, callPayload, initialCallForm, lockedFields, type CallForm } from '@/components/CallDetails';
 import { CustomerLocationCard } from '@/components/CustomerLocation';
 import { VoiceNotes } from '@/components/VoiceNotes';
 import { colors } from '@/components/theme';
@@ -101,7 +101,7 @@ function CallTab({ job, visit, onNext }: { job: Job; visit: Visit; onNext: () =>
   const c = job.customer;
   const [form, setForm] = useState(() => initialCallForm(job));
   const set = (k: keyof CallForm, v: string) => setForm((f) => ({ ...f, [k]: v }));
-  const m = useApiMutation(() => api.patch(`/visits/${visit.id}`, callPayload(form)), {
+  const m = useApiMutation(() => api.patch(`/visits/${visit.id}`, callPayload(form, lockedFields(job))), {
     invalidate: [['tech-job', String(job.id)]],
     toastValidation: false,
     success: 'Saved',
@@ -118,7 +118,7 @@ function CallTab({ job, visit, onNext }: { job: Job; visit: Visit; onNext: () =>
         {!!c?.address && <Muted>{[c.address, c.city, c.pincode].filter(Boolean).join(', ')}</Muted>}
       </Card>
       <CustomerLocationCard job={job} />
-      <ComplaintFields form={form} set={set} error={e} />
+      <ComplaintFields job={job} form={form} set={set} error={e} />
       <ProductFields job={job} form={form} set={set} error={e} scanHint="Scanned. Tap “Save details” to keep it." />
       <Button title="Save & continue" icon="arrow-forward" loading={m.isPending} onPress={() => m.mutate(undefined)} />
     </Screen>

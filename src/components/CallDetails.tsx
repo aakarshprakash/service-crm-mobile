@@ -33,13 +33,24 @@ export function initialCallForm(job: Job) {
   };
 }
 
-export function callPayload(form: CallForm) {
+/**
+ * Fields the office sets and the technician only reads: complaint type, product type and brand.
+ * Locked once they have a value; while blank (a unit added on site) they stay open to fill in.
+ */
+export function lockedFields(job: Job): ReadonlySet<keyof CallForm> {
+  const f = initialCallForm(job);
+  return new Set((['complaint_type_id', 'category_id', 'brand_id'] as const).filter((k) => f[k] !== ''));
+}
+
+export function callPayload(form: CallForm, locked: ReadonlySet<keyof CallForm> = new Set()) {
+  // Locked fields are left out, so a stale copy can't overwrite what the office changed meanwhile.
+  const { complaint_type_id, category_id, brand_id, ...rest } = form;
   return {
-    ...form,
-    complaint_type_id: form.complaint_type_id || null,
+    ...rest,
+    ...(!locked.has('complaint_type_id') && { complaint_type_id: complaint_type_id || null }),
     model_no: form.model_no.trim() || null,
-    category_id: form.category_id || null,
-    brand_id: form.brand_id || null,
+    ...(!locked.has('category_id') && { category_id: category_id || null }),
+    ...(!locked.has('brand_id') && { brand_id: brand_id || null }),
     dealer_id: form.dealer_id || null,
     purchase_date: form.purchase_date || null,
     warranty_type: form.warranty_type || null,
@@ -74,9 +85,22 @@ function ModelInput({ value, onChange, brandId, error }: { value: string; onChan
   );
 }
 
-function PickerField({ title, value, options, onChange, error, clearable, placeholder = 'Select…' }: { title: string; value: string; options: { id: number | string; name: string }[] | undefined; onChange: (id: string) => void; error?: string; clearable?: boolean; placeholder?: string }) {
+/** A value the technician can see but not change. */
+function LockedField({ title, value }: { title: string; value?: string | null }) {
+  return (
+    <Field label={title} hint="Set by the office.">
+      <View accessible accessibilityLabel={`${title}: ${value || 'not set'}. Locked.`} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm + 2, height: 48, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.chip }}>
+        <Text style={{ color: colors.text, fontSize: 16 }}>{value || '—'}</Text>
+        <Icon name="lock-closed" size={16} color={colors.faint} />
+      </View>
+    </Field>
+  );
+}
+
+function PickerField({ title, value, options, onChange, error, clearable, placeholder = 'Select…', locked, fallback }: { title: string; value: string; options: { id: number | string; name: string }[] | undefined; onChange: (id: string) => void; error?: string; clearable?: boolean; placeholder?: string; locked?: boolean; fallback?: string }) {
   const [open, setOpen] = useState(false);
   const name = options?.find((o) => String(o.id) === value)?.name;
+  if (locked) return <LockedField title={title} value={name ?? fallback} />;
   return (
     <Field label={title} error={error}>
       <Pressable onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel={title} style={{ borderWidth: 1, borderColor: error ? colors.red : colors.inputBorder, borderRadius: radius.sm + 2, height: 48, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.card }}>
@@ -114,12 +138,13 @@ function DateInput({ title, value, onChange, error }: { title: string; value: st
 }
 
 /** Complaint type, the job's summary and priority. */
-export function ComplaintFields({ form, set, error }: { form: CallForm; set: (k: keyof CallForm, v: string) => void; error: (field: string) => string | undefined }) {
+export function ComplaintFields({ job, form, set, error }: { job: Job; form: CallForm; set: (k: keyof CallForm, v: string) => void; error: (field: string) => string | undefined }) {
   const { data: lookups } = useLookups();
+  const locked = lockedFields(job);
   return (
     <Card title="Complaint">
       <View style={{ gap: 14 }}>
-        <PickerField title="Complaint type" value={form.complaint_type_id} options={lookups?.complaint_types} onChange={(v) => set('complaint_type_id', v)} error={error('complaint_type_id')} />
+        <PickerField title="Complaint type" value={form.complaint_type_id} options={lookups?.complaint_types} onChange={(v) => set('complaint_type_id', v)} error={error('complaint_type_id')} locked={locked.has('complaint_type_id')} fallback={job.complaint_type?.name} />
         <Field label="Job summary" error={error('complaint_details')}>
           <Input multiline value={form.complaint_details} onChangeText={(v) => set('complaint_details', v)} placeholder="What does the customer report?" />
         </Field>
@@ -134,6 +159,8 @@ export function ComplaintFields({ form, set, error }: { form: CallForm; set: (k:
 /** The unit being serviced. No product on the job yet: the technician adds what's in front of them. */
 export function ProductFields({ job, form, set, error, scanHint = 'Scanned.' }: { job: Job; form: CallForm; set: (k: keyof CallForm, v: string) => void; error: (field: string) => string | undefined; scanHint?: string }) {
   const { data: lookups } = useLookups();
+  const locked = lockedFields(job);
+  const p = job.customer_product;
   const [adding, setAdding] = useState(false);
   const [scanFor, setScanFor] = useState<'serial_no' | 'outdoor_serial_no' | null>(null);
 
@@ -149,9 +176,10 @@ export function ProductFields({ job, form, set, error, scanHint = 'Scanned.' }: 
   return (
     <Card title="Product">
       <View style={{ gap: 14 }}>
-        {/* The office may have typed a category that isn't on the list: show it until the technician picks one. */}
-        <PickerField title="Category" value={form.category_id} options={lookups?.categories} onChange={(v) => set('category_id', v)} error={error('category_id')} placeholder={job.product_category ?? 'Select…'} />
-        <PickerField title="Brand" value={form.brand_id} options={lookups?.brands} onChange={(v) => set('brand_id', v)} error={error('brand_id')} />
+        <PickerField title="Product type" value={form.category_id} options={lookups?.categories} onChange={(v) => set('category_id', v)} error={error('category_id')} locked={locked.has('category_id')} fallback={p?.category?.name ?? p?.product?.category?.name} />
+        {/* Free text the office typed on the job: shown, never edited here. */}
+        {!!job.product_category && <LockedField title="Product category" value={job.product_category} />}
+        <PickerField title="Brand" value={form.brand_id} options={lookups?.brands} onChange={(v) => set('brand_id', v)} error={error('brand_id')} locked={locked.has('brand_id')} fallback={p?.brand?.name ?? p?.product?.brand?.name} />
         <ModelInput value={form.model_no} onChange={(v) => set('model_no', v)} brandId={form.brand_id} error={error('model_no')} />
         {([['serial_no', 'Serial no.'], ['outdoor_serial_no', 'Outdoor unit serial']] as const).map(([key, title]) => (
           <Field key={key} label={title} error={error(key)}>
