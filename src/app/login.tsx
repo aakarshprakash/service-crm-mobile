@@ -1,15 +1,16 @@
-import { useState } from 'react';
-import { Image, KeyboardAvoidingView, Pressable, ScrollView, View } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { Image, KeyboardAvoidingView, Pressable, ScrollView, View, type TextInputProps } from 'react-native';
 import { Text } from '@/components/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { toast } from '@/components/toast';
-import { Button, Field, Icon, Input, Muted, Sheet } from '@/components/ui';
+import { Button, Field, Icon, Input, Muted, Sheet, type IconName } from '@/components/ui';
 import { colors } from '@/components/theme';
 
-/** Sign in with email or mobile number + password (Sanctum token for the app). */
+/** Sign in with email + password (Sanctum token for the app). */
 export default function Login() {
   const { login } = useAuth();
   const [form, setForm] = useState({ login: '', password: '', company: '' });
@@ -18,6 +19,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [secure, setSecure] = useState(true);
   const [forgot, setForgot] = useState(false);
+  const insets = useSafeAreaInsets();
   // The API reports bad credentials on "email" (web form name) or "login".
   const loginError = error?.field('login') ?? error?.field('email');
 
@@ -35,47 +37,105 @@ export default function Login() {
     }
   };
 
+  const email = form.login.trim();
+  const canSubmit = email.includes('@') && !!form.password;
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.navy }}>
+      {/* The navy header runs under the status bar, so its icons are light while this screen is open. */}
+      <StatusBar style="light" />
       {/* Android draws edge to edge, so the window no longer shrinks for the keyboard: pad on both platforms. */}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
-        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24, gap: 20 }} keyboardShouldPersistTaps="handled">
-          <View style={{ alignItems: 'center', gap: 10 }}>
-            <Image source={require('../../assets/logo-mark.png')} style={{ width: 64, height: 64 }} resizeMode="contain" accessibilityLabel="Servon" />
-            <Text style={{ fontSize: 28, fontWeight: '800', color: colors.heading, letterSpacing: 1 }}>SERVON</Text>
-            <Muted>Technician app · sign in to see your jobs</Muted>
+        <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled" bounces={false}>
+          <View style={{ paddingTop: insets.top + 44, paddingBottom: 64, paddingHorizontal: 28, gap: 18 }}>
+            <View style={{ width: 60, height: 60, borderRadius: 18, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' }}>
+              <Image source={require('../../assets/logo-mark.png')} style={{ width: 40, height: 40 }} resizeMode="contain" accessibilityLabel="Servon" />
+            </View>
+            <View style={{ gap: 4 }}>
+              <Text style={{ fontSize: 30, fontWeight: '800', color: colors.onBrand, letterSpacing: 2 }}>SERVON</Text>
+              <Text style={{ fontSize: 16, color: colors.onBrand, opacity: 0.75 }}>Technician app</Text>
+            </View>
           </View>
 
-          <View style={{ gap: 14, backgroundColor: colors.card, borderRadius: 16, padding: 18, borderWidth: 1, borderColor: colors.border }}>
-            <Field label="Email or mobile number" error={loginError}>
-              <Input value={form.login} onChangeText={(v) => setForm({ ...form, login: v })} autoCapitalize="none" autoComplete="username" keyboardType="email-address" textContentType="username" placeholder="ravi@company.com or 98765 43210" />
+          <View style={{ flex: 1, marginTop: -28, backgroundColor: colors.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 24, paddingTop: 30, paddingBottom: insets.bottom + 20, gap: 18 }}>
+            <View style={{ gap: 4 }}>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: colors.heading }}>Sign in</Text>
+              <Muted style={{ fontSize: 14 }}>Use the email and password your office gave you.</Muted>
+            </View>
+
+            <Field label="Email" error={loginError}>
+              <IconInput
+                icon="mail-outline"
+                invalid={!!loginError}
+                value={form.login}
+                onChangeText={(v) => setForm({ ...form, login: v })}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+                keyboardType="email-address"
+                textContentType="username"
+                returnKeyType="next"
+                placeholder="name@company.com"
+              />
             </Field>
             <Field label="Password" error={error?.field('password')}>
-              <View>
-                <Input value={form.password} onChangeText={(v) => setForm({ ...form, password: v })} secureTextEntry={secure} autoComplete="password" textContentType="password" onSubmitEditing={submit} style={{ paddingRight: 48 }} />
-                <Pressable onPress={() => setSecure((s) => !s)} hitSlop={10} style={{ position: 'absolute', right: 12, top: 12 }} accessibilityLabel={secure ? 'Show password' : 'Hide password'}>
-                  <Icon name={secure ? 'eye-outline' : 'eye-off-outline'} color={colors.muted} />
-                </Pressable>
-              </View>
+              <IconInput
+                icon="lock-closed-outline"
+                invalid={!!error?.field('password')}
+                value={form.password}
+                onChangeText={(v) => setForm({ ...form, password: v })}
+                secureTextEntry={secure}
+                autoComplete="password"
+                textContentType="password"
+                returnKeyType="go"
+                onSubmitEditing={() => canSubmit && submit()}
+                placeholder="Your password"
+                right={
+                  <Pressable onPress={() => setSecure((s) => !s)} hitSlop={12} accessibilityRole="button" accessibilityLabel={secure ? 'Show password' : 'Hide password'}>
+                    <Icon name={secure ? 'eye-outline' : 'eye-off-outline'} color={colors.muted} />
+                  </Pressable>
+                }
+              />
             </Field>
             {showCompany && (
-              <Field label="Company code" error={error?.field('company')} hint="Ask your office – it’s the name in your company’s portal link.">
-                <Input value={form.company} onChangeText={(v) => setForm({ ...form, company: v })} autoCapitalize="none" />
+              <Field label="Company code" error={error?.field('company')} hint="Ask your office: it’s the name in your company’s portal link.">
+                <IconInput icon="business-outline" value={form.company} onChangeText={(v) => setForm({ ...form, company: v })} autoCapitalize="none" autoCorrect={false} />
               </Field>
             )}
-            {error && !loginError && !error.field('password') && !error.field('company') && <Text style={{ color: colors.red }}>{error.message}</Text>}
-            <Button title="Sign in" size="lg" loading={busy} disabled={!form.login || !form.password} onPress={submit} />
-            <Button title="Forgot password?" variant="ghost" size="sm" onPress={() => setForgot(true)} />
-          </View>
+            {error && !loginError && !error.field('password') && !error.field('company') && (
+              <View style={{ flexDirection: 'row', gap: 8, backgroundColor: colors.redSoft, borderRadius: 12, padding: 12 }}>
+                <Icon name="alert-circle" size={18} color={colors.red} />
+                <Text style={{ color: colors.red, flex: 1 }}>{error.message}</Text>
+              </View>
+            )}
 
-          <View style={{ alignItems: 'center', gap: 4 }}>
-            <Muted style={{ fontSize: 12 }}>Service Business, Simplified.</Muted>
-            <Muted style={{ fontSize: 11 }}>v{Constants.expoConfig?.version} · Powered by <Text style={{ fontWeight: '700', letterSpacing: 1.5 }}>SYSNAC</Text></Muted>
+            <View style={{ gap: 6, marginTop: 4 }}>
+              <Button title="Sign in" size="lg" loading={busy} disabled={!canSubmit} onPress={submit} />
+              <Button title="Forgot password?" variant="ghost" size="sm" onPress={() => setForgot(true)} />
+            </View>
+
+            <View style={{ flex: 1 }} />
+            <Muted style={{ fontSize: 11, textAlign: 'center' }}>
+              v{Constants.expoConfig?.version} · Powered by <Text style={{ fontWeight: '700', letterSpacing: 1.5, fontSize: 11 }}>SYSNAC</Text>
+            </Muted>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-      {forgot && <ForgotPassword onClose={() => setForgot(false)} initialEmail={form.login.includes('@') ? form.login : ''} />}
-    </SafeAreaView>
+      {forgot && <ForgotPassword onClose={() => setForgot(false)} initialEmail={email.includes('@') ? email : ''} />}
+    </View>
+  );
+}
+
+/** A text box with an icon at its start, and optionally a control at its end (show password). */
+function IconInput({ icon, right, invalid, style, ...props }: TextInputProps & { icon: IconName; right?: ReactNode; invalid?: boolean }) {
+  return (
+    <View style={{ justifyContent: 'center' }}>
+      <Input {...props} invalid={invalid} style={[{ height: 52, paddingLeft: 46, paddingRight: right ? 48 : 14, backgroundColor: colors.card }, style]} />
+      <View pointerEvents="none" style={{ position: 'absolute', left: 14 }}>
+        <Icon name={icon} size={20} color={invalid ? colors.red : colors.faint} />
+      </View>
+      {right && <View style={{ position: 'absolute', right: 14 }}>{right}</View>}
+    </View>
   );
 }
 
