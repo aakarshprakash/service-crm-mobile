@@ -117,8 +117,9 @@ function DateInput({ title, value, onChange, error, required, hint }: { title: s
 }
 
 /**
- * The unit being serviced. Brand, product type, model and product category are locked once the office has
- * entered them; anything missing the technician fills in. Serials, warranty, purchase date and dealer stay editable.
+ * The unit being serviced. Brand, product type and product category are locked once the office has
+ * entered them; anything missing the technician fills in. The model (read off the unit), serials, warranty,
+ * purchase date and dealer stay editable.
  */
 export function ProductFields({ job, form, set, error, scanHint = 'Scanned.' }: { job: Job; form: CallForm; set: (k: keyof CallForm, v: string) => void; error: (field: string) => string | undefined; scanHint?: string }) {
   const { data: lookups } = useLookups();
@@ -126,7 +127,7 @@ export function ProductFields({ job, form, set, error, scanHint = 'Scanned.' }: 
   const [scanFor, setScanFor] = useState<'serial_no' | 'outdoor_serial_no' | null>(null);
   const p = job.customer_product;
   // Locked by what's saved on the job, not what's typed: filling a gap doesn't lock it until it's saved.
-  const locked = { brand: brandOf(p), type: productTypeOf(p), model: modelOf(p), category: job.product_category ?? null };
+  const locked = { brand: brandOf(p), type: productTypeOf(p), category: job.product_category ?? null };
   const anyLocked = Object.values(locked).some(Boolean);
 
   if (!p && !adding) {
@@ -150,13 +151,12 @@ export function ProductFields({ job, form, set, error, scanHint = 'Scanned.' }: 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 14, backgroundColor: colors.bg, borderRadius: radius.sm, padding: 12 }}>
             {!!locked.brand && <Detail k="Brand" v={locked.brand} locked />}
             {!!locked.type && <Detail k="Product type" v={locked.type} locked />}
-            {!!locked.model && <Detail k="Model" v={locked.model} locked />}
             {!!locked.category && <Detail k="Product category" v={locked.category} locked />}
           </View>
         )}
         {!locked.brand && <PickerField title="Brand" value={form.brand_id} options={lookups?.brands} onChange={(v) => set('brand_id', v)} error={error('brand_id')} />}
         {!locked.type && <PickerField title="Product type" value={form.category_id} options={lookups?.categories} onChange={(v) => set('category_id', v)} error={error('category_id')} />}
-        {!locked.model && <ModelInput value={form.model_no} onChange={(v) => set('model_no', v)} brandId={form.brand_id} error={error('model_no')} />}
+        <ModelInput value={form.model_no} onChange={(v) => set('model_no', v)} brandId={form.brand_id} error={error('model_no')} />
         {([['serial_no', 'Serial no.'], ['outdoor_serial_no', 'Outdoor unit serial']] as const).map(([key, title]) => (
           <Field key={key} label={title} error={error(key)}>
             <View style={{ flexDirection: 'row', gap: 8 }}>
