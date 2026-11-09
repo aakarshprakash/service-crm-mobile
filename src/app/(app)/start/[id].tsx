@@ -9,7 +9,8 @@ import { getPosition, tryPosition } from '@/lib/location';
 import { DASHBOARD_KEY } from '@/lib/punch';
 import type { Job, Visit } from '@/lib/types';
 import { toast } from '@/components/toast';
-import { ComplaintFields, ProductFields, callPayload, initialCallForm, type CallForm } from '@/components/CallDetails';
+import { ProductFields, callPayload, checkCallForm, initialCallForm, type CallForm } from '@/components/CallDetails';
+import { ComplaintCard } from '@/components/JobDetails';
 import { CustomerLocationCard } from '@/components/CustomerLocation';
 import { PunchFirst } from '@/components/PunchFirst';
 import { Banner, BottomBar, Button, Card, Empty, ErrorView, FlowSteps, Loading, Muted, Screen, Segmented } from '@/components/ui';
@@ -26,6 +27,14 @@ export default function StartService() {
   const q = useQuery({ queryKey: ['tech-job', id], queryFn: () => api.get<Envelope<Job>>(`/jobs/${id}`).then((r) => r.data) });
   if (q.isPending) return <Loading />;
   if (!q.data || isGone(q.error)) return <ErrorView error={q.error} onRetry={q.refetch} />;
+  if (q.data.needs_resume_approval) {
+    return (
+      <Screen>
+        <Empty icon="hourglass-outline" title="Waiting for the office" message="You left this job pending. The office has to approve it before your next visit." />
+        <Button title="Back to job" variant="secondary" onPress={() => router.back()} />
+      </Screen>
+    );
+  }
   if (!['open', 'pending', 'part_pending'].includes(q.data.status)) {
     return (
       <Screen>
@@ -41,16 +50,26 @@ function StartForm({ job }: { job: Job }) {
   const qc = useQueryClient();
   const [initial, setInitial] = useState(() => initialCallForm(job));
   const [form, setForm] = useState(initial);
-  const set = (k: keyof CallForm, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k: keyof CallForm, v: string) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    setLocal((l) => (l[k] || (k === 'warranty_type' && l.purchase_date) ? {} : l));
+  };
   const [type, setType] = useState<ServiceType>('on_site');
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<ApiError | null>(null);
+  const [local, setLocal] = useState<Record<string, string>>({});
   const [locError, setLocError] = useState<string | null>(null);
   const [punchFirst, setPunchFirst] = useState(false);
   const c = job.customer;
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
 
   const start = async () => {
+    const problems = checkCallForm(form);
+    setLocal(problems);
+    if (Object.keys(problems).length) {
+      toast.error(Object.values(problems)[0]!);
+      return;
+    }
     setBusy(true);
     setErrors(null);
     setLocError(null);
@@ -113,9 +132,9 @@ function StartForm({ job }: { job: Job }) {
 
         <CustomerLocationCard job={job} />
 
-        <Muted>Correct what’s wrong and add what’s missing, such as the serial number. It’s saved when you start.</Muted>
-        <ComplaintFields form={form} set={set} error={(f) => errors?.field(f)} />
-        <ProductFields job={job} form={form} set={set} error={(f) => errors?.field(f)} scanHint="Scanned. It’s saved when you start the service." />
+        <ComplaintCard job={job} title="Job summary" note="Found something different? Write it in the service summary when you finish." />
+        <Muted>Add what’s missing, such as the serial number or purchase date. It’s saved when you start.</Muted>
+        <ProductFields job={job} form={form} set={set} error={(f) => local[f] ?? errors?.field(f)} scanHint="Scanned. It’s saved when you start the service." />
 
         <Card title="How are you serving this call?">
           <Segmented

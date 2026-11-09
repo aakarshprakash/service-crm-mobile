@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Alert, Image, Keyboard, Pressable, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Alert, Image, Keyboard, Linking, Pressable, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
-import { api, ApiError, type Envelope, type Paginated } from '@/lib/api';
+import { api, ApiError, openPdf, type Envelope, type Paginated } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { queuePhoto } from '@/lib/photos';
 import { discardUpload, enqueueSignature, forgetCapture, rememberCapture, retryAll, retryUpload, useUploads, waitForVisit, type UploadItem } from '@/lib/uploads';
@@ -13,32 +13,34 @@ import { label, METHOD_LABEL, money, qty, toMajor, toMinor } from '@/lib/format'
 import { tryPosition } from '@/lib/location';
 import type { InventoryItem, Invoice, Job, Payment, Visit } from '@/lib/types';
 import { toast } from '@/components/toast';
-import { Badge, Banner, Button, Card, Empty, ErrorView, Field, FlowSteps, Icon, Input, Loading, Muted, Row, Screen, Segmented, Sheet, Stepper } from '@/components/ui';
-import { BillSummary } from '@/components/BillSummary';
+import { Badge, Banner, BottomBar, Button, Card, Empty, ErrorView, Field, FlowSteps, Icon, Input, Loading, Muted, Row, Screen, Segmented, Sheet, Stepper, type IconName } from '@/components/ui';
 import { UpiSheet } from '@/components/UpiSheet';
 import { SignaturePad } from '@/components/SignaturePad';
-import { ComplaintFields, ProductFields, callPayload, initialCallForm, type CallForm } from '@/components/CallDetails';
+import { ProductFields, callPayload, checkCallForm, initialCallForm, type CallForm } from '@/components/CallDetails';
+import { ComplaintCard, EarlierPhotos, PhotoThumb, thumb } from '@/components/JobDetails';
 import { CustomerLocationCard } from '@/components/CustomerLocation';
 import { VoiceNotes } from '@/components/VoiceNotes';
-import { colors } from '@/components/theme';
+import { colors, radius } from '@/components/theme';
 
 type Tab = 'call' | 'photos' | 'parts' | 'complete';
+type VisitResult = 'completed' | 'pending' | 'part_pending' | 'cancelled';
+type Done = { invoice: Invoice | null; payment: Payment | null; status: VisitResult; method: string | null };
 
 export default function VisitScreen() {
   const { id, job: jobId } = useLocalSearchParams<{ id: string; job: string }>();
   const job = useQuery({ queryKey: ['tech-job', jobId], queryFn: () => api.get<Envelope<Job>>(`/jobs/${jobId}`).then((r) => r.data) });
   const visit = useQuery({ queryKey: ['visit', id], queryFn: () => api.get<Envelope<Visit>>(`/visits/${id}`).then((r) => r.data) });
   const [tab, setTab] = useState<Tab>('call');
-  const [done, setDone] = useState<{ invoice: Invoice | null; payment: Payment | null; status: string } | null>(null);
+  const [done, setDone] = useState<Done | null>(null);
   const queuedPhotos = useUploads(Number(id)).filter((u) => u.kind === 'image').length;
 
   if (job.isPending || visit.isPending) return <Loading />;
   if (!job.data || !visit.data || isGone(job.error) || isGone(visit.error)) return <ErrorView error={job.error ?? visit.error} onRetry={() => { job.refetch(); visit.refetch(); }} />;
-  if (done) return <Completed result={done} />;
+  if (done) return <Completed job={job.data} result={done} />;
   if (visit.data.status !== 'in_progress') {
     return (
       <Screen>
-        <Empty icon="checkmark-circle-outline" title="This visit is already closed" />
+        <Empty icon="checkmark-circle-outline" title="This visit is already closed" message={visit.data.auto_closed ? 'It was still running at the end of the day, so it was closed automatically. Your photos and parts are kept.' : undefined} />
         <Button title="Back to job" onPress={() => router.back()} />
       </Screen>
     );
@@ -72,13 +74,13 @@ export default function VisitScreen() {
         <CallTab job={job.data} visit={v} onNext={() => setTab('photos')} />
       </View>
       <View style={{ flex: 1, display: tab === 'photos' ? 'flex' : 'none' }}>
-        <PhotosTab visit={v} onNext={() => setTab('parts')} />
+        <PhotosTab job={job.data} visit={v} onNext={() => setTab('parts')} />
       </View>
       <View style={{ flex: 1, display: tab === 'parts' ? 'flex' : 'none' }}>
         <PartsTab visit={v} onNext={() => setTab('complete')} />
       </View>
       <View style={{ flex: 1, display: tab === 'complete' ? 'flex' : 'none' }}>
-        <CompleteTab job={job.data} visit={v} onDone={setDone} />
+        <CompleteTab job={job.data} visit={v} onDone={setDone} goTo={setTab} />
       </View>
     </>
   );
@@ -96,18 +98,28 @@ function VisitTimer({ start }: { start: string }) {
   );
 }
 
-/** Correct the complaint and product while on site. The customer's own details are the office's to change. */
+/** The job summary as the office wrote it (read-only), and the unit: locked fields shown, the rest editable. */
 function CallTab({ job, visit, onNext }: { job: Job; visit: Visit; onNext: () => void }) {
   const c = job.customer;
   const [form, setForm] = useState(() => initialCallForm(job));
-  const set = (k: keyof CallForm, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [local, setLocal] = useState<Record<string, string>>({});
+  const set = (k: keyof CallForm, v: string) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    if (Object.keys(local).length) setLocal({});
+  };
   const m = useApiMutation(() => api.patch(`/visits/${visit.id}`, callPayload(form)), {
     invalidate: [['tech-job', String(job.id)]],
     toastValidation: false,
     success: 'Saved',
     onSuccess: onNext,
   });
-  const e = (n: string) => fieldError(m.error, n);
+  const e = (n: string) => local[n] ?? fieldError(m.error, n);
+  const save = () => {
+    const problems = checkCallForm(form);
+    setLocal(problems);
+    if (Object.keys(problems).length) toast.error(Object.values(problems)[0]!);
+    else m.mutate(undefined);
+  };
 
   return (
     <Screen>
@@ -118,9 +130,9 @@ function CallTab({ job, visit, onNext }: { job: Job; visit: Visit; onNext: () =>
         {!!c?.address && <Muted>{[c.address, c.city, c.pincode].filter(Boolean).join(', ')}</Muted>}
       </Card>
       <CustomerLocationCard job={job} />
-      <ComplaintFields form={form} set={set} error={e} />
-      <ProductFields job={job} form={form} set={set} error={e} scanHint="Scanned. Tap “Save details” to keep it." />
-      <Button title="Save & continue" icon="arrow-forward" loading={m.isPending} onPress={() => m.mutate(undefined)} />
+      <ComplaintCard job={job} title="Job summary" note="Write what you found and did in the service summary when you complete the visit." />
+      <ProductFields job={job} form={form} set={set} error={e} scanHint="Scanned. Tap “Save & continue” to keep it." />
+      <Button title="Save & continue" icon="arrow-forward" loading={m.isPending} onPress={save} />
     </Screen>
   );
 }
@@ -134,7 +146,7 @@ const DEFAULT_PHOTO_TYPES = [
   { key: 'other', label: 'Other' },
 ];
 
-function PhotosTab({ visit, onNext }: { visit: Visit; onNext: () => void }) {
+function PhotosTab({ job, visit, onNext }: { job: Job; visit: Visit; onNext: () => void }) {
   const qc = useQueryClient();
   const pending = useUploads(visit.id).filter((u) => u.kind === 'image');
   const [preparing, setPreparing] = useState<string | null>(null);
@@ -191,6 +203,8 @@ function PhotosTab({ visit, onNext }: { visit: Visit; onNext: () => void }) {
 
   return (
     <Screen refreshing={false} onRefresh={() => { retryAll(); lookupsQuery.refetch(); qc.invalidateQueries({ queryKey: ['visit', String(visit.id)] }); }}>
+      {/* A return visit: what was photographed last time stays here to compare with. */}
+      <EarlierPhotos job={job} exceptVisitId={visit.id} />
       <VoiceNotes visit={visit} />
       {sections.map((t) => {
         const photos = visit.images?.filter((i) => i.type === t.key) ?? [];
@@ -200,9 +214,7 @@ function PhotosTab({ visit, onNext }: { visit: Visit; onNext: () => void }) {
           <Card key={t.key} title={t.label} right={<Muted>{count || ''}</Muted>}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {photos.map((p) => (
-                <Pressable key={p.id} onLongPress={() => remove(p.id)} accessibilityHint="Long press to delete">
-                  <Image source={{ uri: p.url }} style={thumb} />
-                </Pressable>
+                <PhotoThumb key={p.id} image={p} onLongPress={() => remove(p.id)} />
               ))}
               {queued.map((u) => (
                 <PendingThumb key={u.id} item={u} />
@@ -217,13 +229,11 @@ function PhotosTab({ visit, onNext }: { visit: Visit; onNext: () => void }) {
           </Card>
         );
       })}
-      <Muted style={{ textAlign: 'center' }}>Photos upload in the background and are kept on the phone until they reach the office, even without signal. Long-press a photo to delete it.</Muted>
+      <Muted style={{ textAlign: 'center' }}>Photos upload in the background and are kept on the phone until they reach the office, even without signal. Tap a photo to see it, long-press to delete it.</Muted>
       <Button title="Next: Parts" icon="arrow-forward" onPress={onNext} />
     </Screen>
   );
 }
-
-const thumb = { width: 84, height: 84, borderRadius: 8, backgroundColor: colors.border };
 
 /** A photo still on the phone: upload progress, waiting for network, or refused (retry / remove). */
 function PendingThumb({ item }: { item: UploadItem }) {
@@ -383,13 +393,19 @@ function PartsTab({ visit, onNext }: { visit: Visit; onNext: () => void }) {
   );
 }
 
-function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (r: { invoice: Invoice | null; payment: Payment | null; status: string }) => void }) {
+const RESULT_LABEL: Record<VisitResult, string> = { completed: 'Completed', pending: 'Pending', part_pending: 'Part pending', cancelled: 'Cancel job' };
+
+/**
+ * Closing the visit in two steps: fill in the result, charges, payment and signature, then
+ * "Review & complete" shows it all on one screen before the invoice is made.
+ */
+function CompleteTab({ job, visit, onDone, goTo }: { job: Job; visit: Visit; onDone: (r: Done) => void; goTo: (t: Tab) => void }) {
   const qc = useQueryClient();
   const { data: lookups } = useLookups();
   const usageTotal = (visit.inventory_usage ?? []).reduce((a, u) => a + u.total_price, 0);
   const previousBalance = job.invoice?.balance_amount ?? 0;
   const [form, setForm] = useState({
-    status: 'completed' as 'completed' | 'pending' | 'part_pending' | 'cancelled',
+    status: 'completed' as VisitResult,
     action_taken_id: '',
     service_summary: visit.service_summary ?? '',
     customer_satisfaction_code: job.customer_satisfaction_code ?? '',
@@ -399,6 +415,8 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
     amount_collected: '',
     payment_reference: '',
   });
+  const [reviewing, setReviewing] = useState(false);
+  const [local, setLocal] = useState<Record<string, string>>({});
   const billing = lookups?.billing;
   const [isGst, setIsGst] = useState<boolean | null>(null);
   const gstBill = isGst ?? billing?.job_bills !== 'non_gst';
@@ -419,19 +437,20 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
   const queuedSignature = uploads.find((u) => u.kind === 'signature');
   const savedSignature = visit.images?.find((i) => i.type === 'signature');
   const hasSignature = !!queuedSignature || !!savedSignature;
+  const queuedPhotos = uploads.filter((u) => u.kind === 'image');
+  const savedPhotos = visit.images?.filter((i) => i.type !== 'signature') ?? [];
   const [waitingUploads, setWaitingUploads] = useState(false);
   const total = cancelling ? 0 : toMinor(form.labour_charge) + toMinor(form.spare_charge);
   const due = cancelling ? 0 : total + previousBalance;
   const collects = ['cash', 'upi', 'cheque', 'bank_transfer'].includes(form.payment_method);
   const collected = form.amount_collected === '' ? due : toMinor(form.amount_collected);
-  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k: keyof typeof form, v: string) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    if (local[k]) setLocal((l) => ({ ...l, [k]: '' }));
+  };
 
   const m = useApiMutation(
     async () => {
-      if (form.status === 'completed' && signatureRequired && !hasSignature) {
-        setSigning(true);
-        throw new ApiError(422, 'Take the customer’s signature before completing the visit.', { signature: ['Take the customer’s signature before completing the visit.'] });
-      }
       // Photos and the signature must reach the server before the visit closes.
       if (uploads.length) {
         setWaitingUploads(true);
@@ -465,11 +484,15 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
         qc.invalidateQueries({ queryKey: ['tech-jobs'] });
         qc.invalidateQueries({ queryKey: ['my-cash'] });
         qc.invalidateQueries({ queryKey: ['my-parts'] });
-        onDone({ invoice: r.data.invoice, payment: r.data.payment, status: form.status });
+        onDone({ invoice: r.data.invoice, payment: r.data.payment, status: form.status, method: !cancelling && (total > 0 || collected > 0) ? form.payment_method : null });
       },
     },
   );
-  const e = (n: string) => fieldError(m.error, n);
+  // A refusal from the server is about something on the form: go back to it, with the field marked.
+  useEffect(() => {
+    if (m.error instanceof ApiError && m.error.status === 422) setReviewing(false);
+  }, [m.error]);
+  const e = (n: string) => local[n] || fieldError(m.error, n);
   const actionName = lookups?.action_taken_options.find((a) => String(a.id) === form.action_taken_id)?.name;
   const methods = [
     { value: 'cash', label: 'Cash' },
@@ -479,149 +502,250 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
     { value: 'credit', label: 'Credit' },
   ];
 
-  const confirm = () =>
-    Alert.alert(
-      form.status === 'completed' ? 'Complete this visit?' : form.status === 'pending' ? 'Save visit as pending?' : form.status === 'part_pending' ? 'Save visit as part pending?' : 'Send this cancellation for approval?',
-      `${form.status !== 'cancelled' ? `Total charge ${money(total)}. ` : ''}${collects && collected > 0 ? `You collected ${money(collected)} by ${METHOD_LABEL[form.payment_method]}. ` : ''}The visit can’t be edited afterwards.${form.status === 'cancelled' ? ' The job stays open until the office approves or rejects it.' : ''}`,
-      [
-        { text: 'Go back', style: 'cancel' },
-        { text: 'Yes, save', style: form.status === 'cancelled' ? 'destructive' : 'default', onPress: () => m.mutate(undefined) },
-      ],
+  /** The same rules the server applies, checked before the review so it shows only a form that will go through. */
+  const review = () => {
+    const problems: Record<string, string> = {};
+    const summary = form.service_summary.trim();
+    if (form.status === 'completed' && !form.action_taken_id) problems.action_taken_id = 'Select the action taken.';
+    if (!summary) problems.service_summary = cancelling ? 'Write why this job should be cancelled.' : 'Enter a short service summary.';
+    else if (cancelling && summary.length < 10) problems.service_summary = 'Write a clear reason (at least 10 characters) so the office can decide.';
+    if (cancelling && partsOnVisit > 0) problems.status = 'Remove the parts on the Parts tab first, so they go back to stock.';
+    if (form.status === 'completed' && signatureRequired && !hasSignature) problems.signature = 'Take the customer’s signature before completing the visit.';
+    if (due > 0 && collects && collected > 0 && ['cheque', 'bank_transfer'].includes(form.payment_method) && !form.payment_reference.trim()) {
+      problems.payment_reference = form.payment_method === 'cheque' ? 'Enter the cheque number.' : 'Enter the UTR / reference.';
+    }
+    setLocal(problems);
+    if (Object.keys(problems).length) {
+      toast.error(Object.values(problems)[0]!);
+      if (problems.signature) setSigning(true);
+      return;
+    }
+    Keyboard.dismiss();
+    m.reset();
+    setReviewing(true);
+  };
+
+  const submitTitle = waitingUploads
+    ? 'Finishing uploads…'
+    : form.status === 'completed'
+      ? total > 0 || previousBalance > 0 ? 'Generate invoice' : 'Complete visit'
+      : form.status === 'pending' ? 'Save as pending' : form.status === 'part_pending' ? 'Save as part pending' : 'Send cancellation for approval';
+
+  if (reviewing) {
+    return (
+      <>
+        <Screen key="review">
+          <View style={{ gap: 2 }}>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.heading }}>{cancelling ? 'Review cancellation' : 'Review & Complete'}</Text>
+            <Muted>{form.status === 'completed' ? 'Please review the details before generating the invoice.' : 'Please review before saving. The visit can’t be edited afterwards.'}</Muted>
+          </View>
+
+          <ReviewCard icon="construct-outline" title="Service details" onEdit={() => setReviewing(false)}>
+            <Row k="Visit result" v={RESULT_LABEL[form.status]} strong />
+            {!cancelling && <Row k="Action taken" v={actionName ?? '—'} />}
+            <View style={{ gap: 2, paddingVertical: 6 }}>
+              <Text style={{ color: colors.muted, fontSize: 14 }}>{cancelling ? 'Reason' : 'Service summary'}</Text>
+              <Text style={{ color: colors.text, fontSize: 14 }}>{form.service_summary.trim()}</Text>
+            </View>
+            {!cancelling && !!form.customer_satisfaction_code.trim() && <Row k="Satisfaction code" v={form.customer_satisfaction_code.trim()} />}
+            {!cancelling && (
+              <>
+                <Row k="Labour charge" v={money(toMinor(form.labour_charge))} />
+                <Row k="Spare charge" v={money(toMinor(form.spare_charge))} />
+              </>
+            )}
+          </ReviewCard>
+
+          <ReviewCard icon="cube-outline" title={`Parts used (${partsOnVisit})`} right={<Text style={{ fontWeight: '700', color: colors.text }}>{money(usageTotal)}</Text>} onPress={() => goTo('parts')} />
+
+          <ReviewCard icon="camera-outline" title={`Photos (${savedPhotos.length + queuedPhotos.length})`} onPress={() => goTo('photos')}>
+            {savedPhotos.length + queuedPhotos.length > 0 ? (
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {[...savedPhotos.map((p) => p.url), ...queuedPhotos.map((u) => u.uri)].slice(0, 3).map((uri) => (
+                  <Image key={uri} source={{ uri }} style={{ flex: 1, height: 64, borderRadius: 8, backgroundColor: colors.border }} />
+                ))}
+              </View>
+            ) : (
+              <Muted>No photos on this visit.</Muted>
+            )}
+          </ReviewCard>
+
+          {!cancelling && (
+            <ReviewCard icon="wallet-outline" title="Payment" right={<Text style={{ fontWeight: '800', color: colors.text, fontSize: 16 }}>{money(due)}</Text>}>
+              {previousBalance > 0 && <Row k="Includes earlier balance" v={money(previousBalance)} vStyle={{ color: colors.amber }} />}
+              {due > 0 ? (
+                <>
+                  <Row k="Mode" v={METHOD_LABEL[form.payment_method] ?? label(form.payment_method)} />
+                  <Row k="Collected now"v={money(collects ? collected : 0)} vStyle={{ color: colors.green, fontWeight: '700' }} />
+                  {collects && collected < due && <Row k="Left on the customer’s account" v={money(due - collected)} vStyle={{ color: colors.amber }} />}
+                  {!!form.payment_reference && <Row k="Reference" v={form.payment_reference} />}
+                </>
+              ) : (
+                <Muted>Nothing to collect.</Muted>
+              )}
+              {(chooseBillType || job.invoice) && total > 0 && <Row k="Bill" v={(chooseBillType ? gstBill : !!job.invoice?.is_gst) ? 'GST bill' : 'Non-GST bill'} />}
+            </ReviewCard>
+          )}
+
+          {!cancelling && (
+            <ReviewCard
+              icon="create-outline"
+              title="Customer signature"
+              right={<Text style={{ fontWeight: '700', color: hasSignature ? colors.green : signatureRequired && form.status === 'completed' ? colors.red : colors.muted }}>{hasSignature ? 'Added' : 'Not taken'}</Text>}
+              onPress={() => setSigning(true)}
+            />
+          )}
+
+          {uploads.length > 0 && (
+            <Muted style={{ textAlign: 'center' }}>
+              {uploads.some((u) => u.status === 'failed')
+                ? 'An upload was refused by the server. Open the Photos tab to retry or remove it.'
+                : `${uploads.length} upload${uploads.length > 1 ? 's' : ''} still going. ${form.status === 'completed' ? 'The invoice is made' : 'It’s saved'} as soon as ${uploads.length > 1 ? 'they finish' : 'it finishes'}.`}
+            </Muted>
+          )}
+        </Screen>
+        <BottomBar>
+          <Button title="Edit" variant="secondary" icon="create-outline" style={{ flex: 1 }} disabled={m.isPending} onPress={() => setReviewing(false)} />
+          <Button
+            title={submitTitle}
+            size="lg"
+            variant={cancelling ? 'danger' : 'primary'}
+            icon={form.status === 'completed' ? 'document-text-outline' : 'checkmark-circle'}
+            loading={m.isPending}
+            style={{ flex: 2.2 }}
+            onPress={() => m.mutate(undefined)}
+          />
+        </BottomBar>
+        <SignaturePad
+          open={signing}
+          defaultName={job.customer?.name}
+          onClose={() => setSigning(false)}
+          onSave={(png, name) => {
+            enqueueSignature(visit.id, png, name);
+            setSigning(false);
+            toast.success('Signature saved');
+          }}
+        />
+      </>
     );
+  }
 
   return (
-    <Screen>
-      <Field label="Visit result" required>
-        <Segmented columns={2} value={form.status} onChange={(v) => set('status', v)} options={[{ value: 'completed', label: 'Completed' }, { value: 'pending', label: 'Pending' }, { value: 'part_pending', label: 'Part pending' }, { value: 'cancelled', label: 'Cancel job' }]} />
-      </Field>
-      {cancelling && (
-        <Banner tone="danger" icon="hourglass-outline" title="The office must approve this" message="The job stays open until they decide. Nothing is billed on this visit.">
-          {partsOnVisit > 0 && <Text style={{ color: colors.red, fontWeight: '700' }}>Remove the {partsOnVisit > 1 ? `${partsOnVisit} parts` : 'part'} on the Parts tab first, so {partsOnVisit > 1 ? 'they go' : 'it goes'} back to stock.</Text>}
-        </Banner>
-      )}
-      {!cancelling && (
-        <Field label="Action taken" required={form.status === 'completed'} error={e('action_taken_id')}>
-          <Pressable onPress={() => setPickAction(true)} style={{ borderWidth: 1, borderColor: e('action_taken_id') ? colors.red : colors.inputBorder, borderRadius: 10, minHeight: 46, paddingHorizontal: 12, justifyContent: 'center', backgroundColor: colors.card }}>
-            <Text style={{ color: actionName ? colors.text : colors.faint, fontSize: 16 }}>{actionName ?? 'Select what you did…'}</Text>
-          </Pressable>
+    <>
+      <Screen key="form">
+        <FlowSteps current="complete" />
+        <Field label="Visit result" required error={e('status')}>
+          <Segmented columns={2} value={form.status} onChange={(v) => set('status', v)} options={(['completed', 'pending', 'part_pending', 'cancelled'] as const).map((value) => ({ value, label: RESULT_LABEL[value] }))} />
         </Field>
-      )}
-      <Field label={cancelling ? 'Reason for cancelling' : 'Service summary'} required error={e('service_summary') ?? e('status')} hint={cancelling ? 'At least 10 characters, so the office can decide.' : form.status === 'part_pending' ? 'Write which part is needed, so the office can order it.' : undefined}>
-        <Input
-          multiline
-          value={form.service_summary}
-          onChangeText={(v) => set('service_summary', v)}
-          placeholder={form.status === 'cancelled' ? 'Why should this job be cancelled?' : 'What was checked / done, parts pending, advice given…'}
-        />
-      </Field>
-      {!cancelling && (
-        <>
-          <Field label="Customer Satisfaction Code" error={e('customer_satisfaction_code')} hint="Ask the customer for this code.">
-            <Input value={form.customer_satisfaction_code} autoCapitalize="characters" autoCorrect={false} maxLength={50} onChangeText={(v) => set('customer_satisfaction_code', v)} />
+        {cancelling && (
+          <Banner tone="danger" icon="hourglass-outline" title="The office must approve this" message="The job stays open until they decide. Nothing is billed on this visit.">
+            {partsOnVisit > 0 && <Text style={{ color: colors.red, fontWeight: '700' }}>Remove the {partsOnVisit > 1 ? `${partsOnVisit} parts` : 'part'} on the Parts tab first, so {partsOnVisit > 1 ? 'they go' : 'it goes'} back to stock.</Text>}
+          </Banner>
+        )}
+        {(form.status === 'pending' || form.status === 'part_pending') && (
+          <Banner tone="info" icon="information-circle-outline" title="The job stays with you" message="To go back for the next visit, ask the office to approve it from the job screen." />
+        )}
+        {!cancelling && (
+          <Field label="Action taken" required={form.status === 'completed'} error={e('action_taken_id')}>
+            <Pressable onPress={() => setPickAction(true)} style={{ borderWidth: 1, borderColor: e('action_taken_id') ? colors.red : colors.inputBorder, borderRadius: 10, minHeight: 46, paddingHorizontal: 12, justifyContent: 'center', backgroundColor: colors.card }}>
+              <Text style={{ color: actionName ? colors.text : colors.faint, fontSize: 16 }}>{actionName ?? 'Select what you did…'}</Text>
+            </Pressable>
           </Field>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <View style={{ flex: 1 }}>
-              <Field label="Labour charge" error={e('labour_charge')}>
-                <Input value={form.labour_charge} keyboardType="decimal-pad" placeholder="0" onChangeText={(v) => setForm((f) => ({ ...f, labour_charge: v.replace(/[^\d.]/g, ''), amount_collected: '' }))} />
-              </Field>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Field label="Spare charge" error={e('spare_charge')} hint={usageTotal ? `Parts: ${money(usageTotal)}` : undefined}>
-                <Input value={form.spare_charge} keyboardType="decimal-pad" placeholder="0" onChangeText={(v) => setForm((f) => ({ ...f, spare_charge: v.replace(/[^\d.]/g, ''), amount_collected: '' }))} />
-              </Field>
-            </View>
-          </View>
-          {chooseBillType && total > 0 && (
-            <Field label="Bill type" error={e('is_gst')} hint={gstBill ? 'Prices include GST, so the customer pays the same. The invoice shows the tax split.' : 'A plain invoice with no tax shown.'}>
-              <Segmented value={gstBill ? 'gst' : 'non_gst'} onChange={(v) => setIsGst(v === 'gst')} options={[{ value: 'gst', label: 'GST bill' }, { value: 'non_gst', label: 'Non-GST bill' }]} />
-            </Field>
-          )}
-          {!!job.invoice && total > 0 && <Muted>This adds to {job.invoice.invoice_number}, a {job.invoice.is_gst ? 'GST' : 'non-GST'} bill.</Muted>}
-          <Card>
-            <Row k="This visit" v={money(total)} />
-            {previousBalance > 0 && <Row k="Previous balance" v={money(previousBalance)} vStyle={{ color: colors.amber }} />}
-            <Row k="Amount due" v={money(due)} strong />
-          </Card>
-        </>
-      )}
-
-      {due > 0 && (
-        <>
-          <Field label="Payment" error={e('payment_method')}>
-            <Segmented value={form.payment_method} columns={3} onChange={(v) => setForm((f) => ({ ...f, payment_method: v, payment_reference: '' }))} options={methods} />
-            <Muted style={{ fontSize: 12 }}>
-              {form.payment_method === 'credit' ? 'Nothing collected now; the amount goes to the customer’s outstanding.' : 'Cash and cheques are handed over at your daily cash close.'}
-            </Muted>
-          </Field>
-          {collects && (
-            <>
-              <Field label="Amount collected" error={e('amount_collected') ?? e('amount')} hint="Partial payment is allowed">
-                <Input value={form.amount_collected === '' ? toMajor(due) : form.amount_collected} keyboardType="decimal-pad" onChangeText={(v) => set('amount_collected', v.replace(/[^\d.]/g, ''))} />
-              </Field>
-              {form.payment_method === 'upi' && collected > 0 && <Button title="Show UPI QR to customer" variant="secondary" icon="qr-code-outline" onPress={() => setShowQr(true)} />}
-              {form.payment_method !== 'cash' && (
-                <Field label={form.payment_method === 'cheque' ? 'Cheque number' : form.payment_method === 'upi' ? 'UPI reference (optional)' : 'UTR / reference'} required={form.payment_method !== 'upi'} error={e('reference_no') ?? e('payment_reference')}>
-                  <Input value={form.payment_reference} autoCapitalize="characters" onChangeText={(v) => set('payment_reference', v)} />
-                </Field>
-              )}
-            </>
-          )}
-        </>
-      )}
-
-      {form.status !== 'cancelled' && (
-        <Card
-          title="Customer signature"
-          right={<Badge text={signatureRequired && form.status === 'completed' ? 'required' : 'optional'} tone={signatureRequired && form.status === 'completed' ? (hasSignature ? 'completed' : 'pending') : 'cancelled'} />}
-        >
-          {hasSignature ? (
-            <View style={{ gap: 6 }}>
-              <Image
-                source={{ uri: queuedSignature?.uri ?? savedSignature?.url }}
-                resizeMode="contain"
-                style={{ height: 96, borderRadius: 8, borderWidth: 1, borderColor: e('signature') ? colors.red : colors.border, backgroundColor: '#fff' }}
-              />
-              <Muted>
-                Signed by {queuedSignature?.signerName ?? visit.signer_name ?? 'customer'}
-                {queuedSignature ? (queuedSignature.status === 'failed' ? ' · not uploaded' : ' · uploading…') : ''}
-              </Muted>
-            </View>
-          ) : (
-            <Muted style={e('signature') ? { color: colors.red } : undefined}>
-              {e('signature') ?? 'After the work is done, ask the customer to sign on the phone. It is printed on the invoice.'}
-            </Muted>
-          )}
-          <Button
-            title={hasSignature ? 'Sign again' : 'Take customer signature'}
-            icon="create-outline"
-            variant={hasSignature ? 'ghost' : 'secondary'}
-            style={{ marginTop: 10 }}
-            onPress={() => setSigning(true)}
+        )}
+        <Field label={cancelling ? 'Reason for cancelling' : 'Service summary'} required error={e('service_summary')} hint={cancelling ? 'At least 10 characters, so the office can decide.' : form.status === 'part_pending' ? 'Write which part is needed, so the office can order it.' : undefined}>
+          <Input
+            multiline
+            value={form.service_summary}
+            invalid={!!e('service_summary')}
+            onChangeText={(v) => set('service_summary', v)}
+            placeholder={cancelling ? 'Why should this job be cancelled?' : 'What was checked / done, parts pending, advice given…'}
           />
-        </Card>
-      )}
+        </Field>
+        {!cancelling && (
+          <>
+            <Field label="Customer Satisfaction Code" error={e('customer_satisfaction_code')} hint="Ask the customer for this code.">
+              <Input value={form.customer_satisfaction_code} autoCapitalize="characters" autoCorrect={false} maxLength={50} onChangeText={(v) => set('customer_satisfaction_code', v)} />
+            </Field>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Field label="Labour charge" error={e('labour_charge')}>
+                  <Input value={form.labour_charge} keyboardType="decimal-pad" placeholder="0" onChangeText={(v) => setForm((f) => ({ ...f, labour_charge: v.replace(/[^\d.]/g, ''), amount_collected: '' }))} />
+                </Field>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Field label="Spare charge" error={e('spare_charge')} hint={usageTotal ? `Parts: ${money(usageTotal)}` : undefined}>
+                  <Input value={form.spare_charge} keyboardType="decimal-pad" placeholder="0" onChangeText={(v) => setForm((f) => ({ ...f, spare_charge: v.replace(/[^\d.]/g, ''), amount_collected: '' }))} />
+                </Field>
+              </View>
+            </View>
+            {chooseBillType && total > 0 && (
+              <Field label="Bill type" error={e('is_gst')} hint={gstBill ? 'Prices include GST, so the customer pays the same. The invoice shows the tax split.' : 'A plain invoice with no tax shown.'}>
+                <Segmented value={gstBill ? 'gst' : 'non_gst'} onChange={(v) => setIsGst(v === 'gst')} options={[{ value: 'gst', label: 'GST bill' }, { value: 'non_gst', label: 'Non-GST bill' }]} />
+              </Field>
+            )}
+            {!!job.invoice && total > 0 && <Muted>This adds to {job.invoice.invoice_number}, a {job.invoice.is_gst ? 'GST' : 'non-GST'} bill.</Muted>}
+            <Card>
+              <Row k="This visit" v={money(total)} />
+              {previousBalance > 0 && <Row k="Previous balance" v={money(previousBalance)} vStyle={{ color: colors.amber }} />}
+              <Row k="Amount due" v={money(due)} strong />
+            </Card>
+          </>
+        )}
 
-      {uploads.length > 0 && (
-        <Muted style={{ textAlign: 'center' }}>
-          {uploads.some((u) => u.status === 'failed')
-            ? 'An upload was refused by the server. Open the Photos tab to retry or remove it.'
-            : `${uploads.length} upload${uploads.length > 1 ? 's' : ''} in progress. The visit is saved as soon as ${uploads.length > 1 ? 'they finish' : 'it finishes'}.`}
-        </Muted>
-      )}
+        {due > 0 && (
+          <>
+            <Field label="Payment" error={e('payment_method')}>
+              <Segmented value={form.payment_method} columns={3} onChange={(v) => setForm((f) => ({ ...f, payment_method: v, payment_reference: '' }))} options={methods} />
+              <Muted style={{ fontSize: 12 }}>
+                {form.payment_method === 'credit' ? 'Nothing collected now; the amount goes to the customer’s outstanding.' : 'Cash and cheques are handed over at your daily cash close.'}
+              </Muted>
+            </Field>
+            {collects && (
+              <>
+                <Field label="Amount collected" error={e('amount_collected') ?? e('amount')} hint="Partial payment is allowed">
+                  <Input value={form.amount_collected === '' ? toMajor(due) : form.amount_collected} keyboardType="decimal-pad" onChangeText={(v) => set('amount_collected', v.replace(/[^\d.]/g, ''))} />
+                </Field>
+                {form.payment_method === 'upi' && collected > 0 && <Button title="Show UPI QR to customer" variant="secondary" icon="qr-code-outline" onPress={() => setShowQr(true)} />}
+                {form.payment_method !== 'cash' && (
+                  <Field label={form.payment_method === 'cheque' ? 'Cheque number' : form.payment_method === 'upi' ? 'UPI reference (optional)' : 'UTR / reference'} required={form.payment_method !== 'upi'} error={e('payment_reference') || e('reference_no')}>
+                    <Input value={form.payment_reference} autoCapitalize="characters" onChangeText={(v) => set('payment_reference', v)} />
+                  </Field>
+                )}
+              </>
+            )}
+          </>
+        )}
 
-      <Button
-        title={waitingUploads ? 'Finishing uploads…' : form.status === 'completed' ? 'Save & generate invoice' : form.status === 'pending' ? 'Save as pending' : form.status === 'part_pending' ? 'Save as part pending' : 'Send cancellation for approval'}
-        size="lg"
-        variant={form.status === 'cancelled' ? 'danger' : 'primary'}
-        icon="checkmark-circle"
-        loading={m.isPending}
-        disabled={cancelling && (partsOnVisit > 0 || form.service_summary.trim().length < 10)}
-        onPress={confirm}
-      />
+        {!cancelling && (
+          <Card
+            title="Customer signature"
+            right={<Badge text={signatureRequired && form.status === 'completed' ? 'required' : 'optional'} tone={signatureRequired && form.status === 'completed' ? (hasSignature ? 'completed' : 'pending') : 'cancelled'} />}
+          >
+            {hasSignature ? (
+              <View style={{ gap: 6 }}>
+                <Image
+                  source={{ uri: queuedSignature?.uri ?? savedSignature?.url }}
+                  resizeMode="contain"
+                  style={{ height: 96, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: '#fff' }}
+                />
+                <Muted>
+                  Signed by {queuedSignature?.signerName ?? visit.signer_name ?? 'customer'}
+                  {queuedSignature ? (queuedSignature.status === 'failed' ? ' · not uploaded' : ' · uploading…') : ''}
+                </Muted>
+              </View>
+            ) : (
+              <Muted style={e('signature') ? { color: colors.red } : undefined}>{e('signature') ?? 'After the work is done, ask the customer to sign on the phone. It is printed on the invoice.'}</Muted>
+            )}
+            <Button title={hasSignature ? 'Sign again' : 'Take customer signature'} icon="create-outline" variant={hasSignature ? 'ghost' : 'secondary'} style={{ marginTop: 10 }} onPress={() => setSigning(true)} />
+          </Card>
+        )}
+
+        <Button title={cancelling ? 'Review cancellation' : 'Review & complete'} size="lg" variant={cancelling ? 'danger' : 'primary'} icon="arrow-forward" onPress={review} />
+      </Screen>
 
       <Sheet open={pickAction} onClose={() => setPickAction(false)} title="Action taken">
         {lookups?.action_taken_options.map((a) => (
-          <Pressable key={a.id} onPress={() => { set('action_taken_id', String(a.id)); setPickAction(false); m.reset(); }} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+          <Pressable key={a.id} onPress={() => { set('action_taken_id', String(a.id)); setPickAction(false); }} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
             <Text style={{ fontSize: 16, color: String(a.id) === form.action_taken_id ? colors.brand : colors.text }}>{a.name}</Text>
           </Pressable>
         ))}
@@ -634,23 +758,133 @@ function CompleteTab({ job, visit, onDone }: { job: Job; visit: Visit; onDone: (
         onSave={(png, name) => {
           enqueueSignature(visit.id, png, name);
           setSigning(false);
-          m.reset();
+          setLocal((l) => ({ ...l, signature: '' }));
           toast.success('Signature saved');
         }}
       />
-    </Screen>
+    </>
   );
 }
 
-function Completed({ result }: { result: { invoice: Invoice | null; payment: Payment | null; status: string } }) {
-  return (
-    <Screen>
-      <View style={{ alignItems: 'center', gap: 8, paddingVertical: 24 }}>
-        <Icon name="checkmark-circle" size={64} color={colors.green} />
-        <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text, textAlign: 'center' }}>{result.status === 'cancelled' ? 'Cancellation sent for approval' : `Visit saved as ${label(result.status)}`}</Text>
+/** One block of the review: an icon, a title, and either details or a tap to go and change it. */
+function ReviewCard({ icon, title, right, onEdit, onPress, children }: { icon: IconName; title: string; right?: ReactNode; onEdit?: () => void; onPress?: () => void; children?: ReactNode }) {
+  const head = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name={icon} size={17} color={colors.brand} />
       </View>
-      {result.invoice && <BillSummary invoice={{ ...result.invoice, payments: result.payment ? [result.payment] : result.invoice.payments }} />}
-      <Button title="Back to home" size="lg" onPress={() => router.dismissTo('/')} />
-    </Screen>
+      <Text style={{ flex: 1, fontWeight: '700', color: colors.text, fontSize: 15 }}>{title}</Text>
+      {right}
+      {onEdit && (
+        <Pressable onPress={onEdit} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Edit ${title.toLowerCase()}`}>
+          <Icon name="pencil" size={18} color={colors.brand} />
+        </Pressable>
+      )}
+      {onPress && <Icon name="chevron-forward" size={18} color={colors.faint} />}
+    </View>
+  );
+  const body = (
+    <View style={{ backgroundColor: colors.card, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 14, gap: children ? 10 : 0 }}>
+      {head}
+      {children && <View style={{ paddingLeft: 42 }}>{children}</View>}
+    </View>
+  );
+  return onPress ? (
+    <Pressable onPress={onPress} accessibilityRole="button" style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
+      {body}
+    </Pressable>
+  ) : (
+    body
+  );
+}
+
+/** After closing the visit: what was billed and paid, the invoice, and a message for the customer. */
+function Completed({ job, result }: { job: Job; result: Done }) {
+  const { user } = useAuth();
+  const [opening, setOpening] = useState(false);
+  const inv = result.invoice;
+  const finished = result.status === 'completed';
+  const paid = inv?.paid_amount ?? 0;
+  const balance = inv?.balance_amount ?? 0;
+  const mode = result.payment ? METHOD_LABEL[result.payment.method] ?? label(result.payment.method) : result.method ? METHOD_LABEL[result.method] ?? label(result.method) : '—';
+  const subtitle = !finished
+    ? result.status === 'cancelled'
+      ? 'The office decides. The job stays open until they do.'
+      : 'The job stays with you. Ask the office to approve the next visit from the job screen.'
+    : !inv
+      ? 'Nothing to bill on this job.'
+      : balance <= 0
+        ? 'Payment received and the invoice has been generated.'
+        : paid > 0
+          ? `Invoice generated. ${money(balance)} is still due.`
+          : 'Invoice generated. The amount is on the customer’s account.';
+
+  const viewInvoice = async () => {
+    if (!inv) return;
+    setOpening(true);
+    try {
+      await openPdf(`/invoices/${inv.id}/pdf`, `invoice-${inv.invoice_number.replace(/[^\w-]/g, '_')}.pdf`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setOpening(false);
+    }
+  };
+  const whatsapp = () => {
+    const c = job.customer;
+    const digits = (c?.phone ?? '').replace(/\D/g, '');
+    const phone = digits.length === 10 ? `91${digits}` : digits;
+    const lines = [
+      `Dear ${c?.name ?? 'customer'},`,
+      `Your service job ${job.crm_call_id} is complete.`,
+      inv && `Invoice ${inv.invoice_number} · Total ${money(inv.total_amount)} · Paid ${money(paid)}${balance > 0 ? ` · Balance ${money(balance)}` : ''}`,
+      `Thank you${user?.tenant?.name ? `, ${user.tenant.name}` : ''}.`,
+    ].filter(Boolean);
+    Linking.openURL(`https://wa.me/${phone}?text=${encodeURIComponent(lines.join('\n'))}`).catch(() => toast.error('Couldn’t open WhatsApp.'));
+  };
+
+  const tone = finished ? { fg: colors.green, bg: colors.greenSoft, icon: 'checkmark' as const } : result.status === 'cancelled' ? { fg: colors.red, bg: colors.redSoft, icon: 'hourglass-outline' as const } : { fg: colors.amber, bg: colors.amberSoft, icon: 'time-outline' as const };
+
+  return (
+    <>
+      <Stack.Screen options={{ title: job.crm_call_id, headerBackVisible: false, gestureEnabled: false }} />
+      <Screen>
+        <View style={{ alignItems: 'center', gap: 10, paddingTop: 12, paddingBottom: 4 }}>
+          <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: tone.bg, alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: tone.fg, alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name={tone.icon} size={44} color={colors.onBrand} />
+            </View>
+          </View>
+          <Text style={{ fontSize: 24, fontWeight: '800', color: colors.heading, textAlign: 'center' }}>
+            {finished ? 'Job Completed!' : result.status === 'cancelled' ? 'Cancellation sent' : `Saved as ${label(result.status).toLowerCase()}`}
+          </Text>
+          <Text style={{ color: colors.muted, textAlign: 'center', fontSize: 15, paddingHorizontal: 12 }}>{subtitle}</Text>
+        </View>
+
+        <Card>
+          <Row k="Job number" v={job.crm_call_id} strong />
+          <Row k="Customer" v={job.customer?.name ?? '—'} strong />
+          {inv && (
+            <>
+              <Row k="Total amount" v={money(inv.total_amount)} strong />
+              <Row k="Amount paid" v={money(paid)} strong vStyle={{ color: colors.green }} />
+              {balance > 0 && <Row k="Balance due" v={money(balance)} strong vStyle={{ color: colors.amber }} />}
+              <Row k="Payment mode" v={mode} />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 }}>
+                <Text style={{ color: colors.muted, fontSize: 14 }}>Invoice number</Text>
+                {/* Long-press to copy. */}
+                <Text selectable style={{ color: colors.brand, fontWeight: '700', fontSize: 14 }}>
+                  {inv.invoice_number}
+                </Text>
+              </View>
+            </>
+          )}
+        </Card>
+
+        {inv && <Button title="View invoice" size="lg" icon="eye-outline" loading={opening} onPress={viewInvoice} />}
+        {finished && !!job.customer?.phone && <Button title="Share via WhatsApp" size="lg" variant="secondary" icon="logo-whatsapp" onPress={whatsapp} />}
+        <Button title="Back to jobs" size="lg" variant="secondary" icon="home-outline" onPress={() => router.dismissTo('/jobs')} />
+      </Screen>
+    </>
   );
 }

@@ -43,3 +43,6 @@ yarn-error.*
 # Release signing + Firebase (never commit)
 credentials/
 google-services.json
+
+# EAS local signing credentials (keystore passwords)
+credentials.json
