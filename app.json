@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Servon Technician",
-    "slug": "servon-technician",
+    "slug": "servon",
     "version": "2.4.0",
     "scheme": "servon",
     "orientation": "portrait",
@@ -107,6 +107,13 @@
       ],
       "./plugins/withReleaseSigning",
       "./plugins/withShortCmakeObjectPaths"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "44728f11-002b-4409-bd5f-b877946122d5"
+      }
+    },
+    "owner": "sysnac"
   }
 }
