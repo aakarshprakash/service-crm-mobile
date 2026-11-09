@@ -2,7 +2,7 @@
   "expo": {
     "name": "Servon Technician",
     "slug": "servon-technician",
-    "version": "2.3.0",
+    "version": "2.4.0",
     "scheme": "servon",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "com.servon.technician",
-      "versionCode": 230,
+      "versionCode": 240,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
