@@ -1,10 +1,12 @@
 import { useState, type ReactNode } from 'react';
-import { Image, Modal, Pressable, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, View } from 'react-native';
 import { Text } from '@/components/Text';
+import { shareDownload } from '@/lib/api';
 import { useLookups } from '@/lib/hooks';
+import { toast } from '@/components/toast';
 import { date, dateTime, label, schedule } from '@/lib/format';
 import type { CustomerProduct, Job, JobImage } from '@/lib/types';
-import { Card, Icon, Muted } from '@/components/ui';
+import { Button, Card, Icon, Muted } from '@/components/ui';
 import { colors, radius } from '@/components/theme';
 
 const CALL_TYPE: Record<string, string> = { crm_call: 'CRM call', walk_in: 'Walk-in', referral: 'Referral', portal: 'Customer portal' };
@@ -114,22 +116,60 @@ export function LockedTag({ text = 'Set by office' }: { text?: string }) {
 
 export const thumb = { width: 84, height: 84, borderRadius: 8, backgroundColor: colors.border };
 
-/** A photo that opens full screen when tapped. */
-export function PhotoThumb({ image, size = 84, onLongPress, faded }: { image: Pick<JobImage, 'url'>; size?: number; onLongPress?: () => void; faded?: boolean }) {
+/** A photo that opens full screen when tapped. From there it can be saved to the phone or shared. */
+export function PhotoThumb({ image, size = 84, onLongPress, faded }: { image: Pick<JobImage, 'url'> & { id?: number }; size?: number; onLongPress?: () => void; faded?: boolean }) {
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await shareDownload(image.url, `photo-${image.id ?? Date.now()}.jpg`, 'image/jpeg');
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <>
       <Pressable onPress={() => setOpen(true)} onLongPress={onLongPress} accessibilityRole="imagebutton" accessibilityLabel="Open photo">
-        <Image source={{ uri: image.url }} style={[thumb, { width: size, height: size }, faded && { opacity: 0.85 }]} />
+        {/* Decoded at thumbnail size: a full 1600px photo per tile is what made photo-heavy screens stutter. */}
+        <Image source={{ uri: image.url }} resizeMethod="resize" style={[thumb, { width: size, height: size }, faded && { opacity: 0.85 }]} />
       </Pressable>
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)} statusBarTranslucent>
         <Pressable onPress={() => setOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="Close photo">
           <Image source={{ uri: image.url }} style={{ width: '100%', height: '80%' }} resizeMode="contain" />
-          <Text style={{ color: '#fff', marginTop: 12 }}>Tap to close</Text>
+          <Pressable
+            onPress={save}
+            disabled={saving}
+            accessibilityRole="button"
+            accessibilityLabel="Save or share this photo"
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingHorizontal: 18, paddingVertical: 11, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.16)' }}
+          >
+            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Icon name="download-outline" size={18} color="#fff" />}
+            <Text style={{ color: '#fff', fontWeight: '700' }}>{saving ? 'Downloading…' : 'Save or share'}</Text>
+          </Pressable>
+          <Text style={{ color: '#fff', opacity: 0.7, marginTop: 12 }}>Tap anywhere to close</Text>
         </Pressable>
       </Modal>
     </>
   );
+}
+
+/** Every photo on the job in one ZIP file: for a technician who takes the job over, or to send to the office. */
+function DownloadAllPhotos({ job }: { job: Job }) {
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try {
+      await shareDownload(`/jobs/${job.id}/photos.zip`, `Photos-${job.crm_call_id.replace(/[^A-Za-z0-9_-]+/g, '-')}.zip`, 'application/zip');
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <Button title="Download all photos (ZIP)" size="sm" variant="secondary" icon="download-outline" loading={busy} onPress={run} />;
 }
 
 /** Photos from earlier visits on this job, by section: kept, so a return visit starts from what was found. */
@@ -142,6 +182,7 @@ export function EarlierPhotos({ job, exceptVisitId, title = 'Photos from earlier
   return (
     <Card title={title} right={<Muted>{photos.length}</Muted>}>
       <View style={{ gap: 12 }}>
+        <DownloadAllPhotos job={job} />
         {groups.map((g) => (
           <View key={g} style={{ gap: 6 }}>
             <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '600' }}>{name(g)}</Text>

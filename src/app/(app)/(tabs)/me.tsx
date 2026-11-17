@@ -26,6 +26,8 @@ function shiftMonth(month: string, n: number) {
 /** Self service: attendance calendar, leave, payslips and account. */
 export default function Me() {
   const { user, logout } = useAuth();
+  // The company chooses whether leave is handled in the app (Settings → Technician app).
+  const showLeave = !!useLookups().data?.tech_app?.show_leave;
   const uploads = useUploads();
   const confirmLogout = () =>
     Alert.alert(
@@ -57,7 +59,7 @@ export default function Me() {
         </View>
       </Card>
       <Attendance />
-      <Leave />
+      {showLeave && <Leave />}
       <Payslips />
       <PushCard />
       <SecurityCard />

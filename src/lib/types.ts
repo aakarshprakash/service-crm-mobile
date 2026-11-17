@@ -219,6 +219,9 @@ export interface Job {
   complaint_details: string | null;
   /** Collected from the customer by the technician. */
   customer_satisfaction_code?: string | null;
+  /** Completed, with the customer's feedback still to come: the job stays in the list until it is taken. */
+  feedback_pending?: boolean;
+  feedback_taken_at?: string | null;
   /** Set by the office on the job, or from the product's category. */
   product_category?: string | null;
   /** Which part a part-pending job is waiting for. */
@@ -279,6 +282,8 @@ export interface Lookups {
   upi_accounts?: UpiAccount[];
   expense_categories?: Named[];
   leave_types?: { id: number; name: string; code: string | null; annual_quota: number; is_paid: boolean }[];
+  /** What the app shows, set by the company under Settings. */
+  tech_app?: { show_leave?: boolean };
 }
 
 export interface CashSummary {

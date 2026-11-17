@@ -64,6 +64,10 @@ export default function Jobs() {
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); counts.refetch(); }} colors={[colors.brand]} />}
           onEndReached={() => q.hasNextPage && !q.isFetchingNextPage && q.fetchNextPage()}
           onEndReachedThreshold={0.4}
+          initialNumToRender={6}
+          maxToRenderPerBatch={6}
+          windowSize={7}
+          removeClippedSubviews
           ListEmptyComponent={<Empty icon="clipboard-outline" title={debounced ? `Nothing matches “${debounced}”` : 'No jobs here'} message={debounced ? undefined : 'New jobs assigned to you show up here.'} />}
           ListFooterComponent={q.isFetchingNextPage ? <Loading /> : null}
           renderItem={({ item: j }) => <JobCard job={j} />}
