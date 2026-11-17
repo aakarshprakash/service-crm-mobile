@@ -178,10 +178,30 @@ export const api = {
 export function clearDownloadedPdfs() {
   try {
     for (const entry of new Directory(Paths.cache).list()) {
-      if (entry instanceof File && entry.name.endsWith('.pdf')) entry.delete();
+      if (entry instanceof File && /\.(pdf|zip|jpe?g|png|webp)$/i.test(entry.name)) entry.delete();
     }
   } catch {
     /* best effort */
+  }
+}
+
+/**
+ * Downloads a file to the cache and opens the phone's share sheet, where it can be saved to the gallery
+ * or Files, or sent on. `source` is an API path (sent with the sign-in token) or a full signed URL.
+ */
+export async function shareDownload(source: string, filename: string, mimeType: string): Promise<void> {
+  const absolute = /^https?:\/\//.test(source);
+  let file: File;
+  try {
+    file = await File.downloadFileAsync(absolute ? source : `${server}/api/v1${source}`, new File(Paths.cache, filename), {
+      headers: absolute ? undefined : headers({ Accept: mimeType }),
+      idempotent: true,
+    });
+  } catch {
+    throw new ApiError(0, 'Download failed. Check your connection and try again.');
+  }
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(file.uri, { mimeType, dialogTitle: filename });
   }
 }
 

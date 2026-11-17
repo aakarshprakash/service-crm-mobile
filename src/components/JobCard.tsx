@@ -1,5 +1,5 @@
-import type { ReactElement } from 'react';
-import { Pressable, View } from 'react-native';
+import { memo, type ReactElement } from 'react';
+import { Linking, Pressable, View } from 'react-native';
 import { router } from 'expo-router';
 import { Text } from '@/components/Text';
 import { callAge, date, label, schedule } from '@/lib/format';
@@ -68,15 +68,51 @@ export function JobAddress({ job, lines = 2 }: { job: Job; lines?: number }) {
   );
 }
 
-export function JobCard({ job: j }: { job: Job }) {
+/** Google Maps link: the customer's pin when known, otherwise a search on their address. */
+export function jobMapUrl(job: Job): string | null {
+  const c = job.customer;
+  if (c?.lat != null && c?.lng != null) return `https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}`;
+  const addr = [c?.address, job.service_location?.name ?? c?.city, c?.pincode].filter(Boolean).join(', ');
+  return addr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}` : null;
+}
+
+function ActionPill({ icon, text, color, bg, onPress }: { icon: IconName; text: string; color: string; bg: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={6} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: bg, borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 8, opacity: pressed ? 0.6 : 1 })}>
+      <Icon name={icon} size={15} color={color} />
+      <Text style={{ color, fontWeight: '700', fontSize: 13 }}>{text}</Text>
+    </Pressable>
+  );
+}
+
+/** Call / WhatsApp / Directions quick actions. The pills handle their own taps, so the card doesn't open. */
+export function JobActions({ job }: { job: Job }) {
+  const phone = job.customer?.phone?.trim();
+  const map = jobMapUrl(job);
+  if (!phone && !map) return null;
+  const wa = phone ? (phone.replace(/\D/g, '').length === 10 ? '91' + phone.replace(/\D/g, '') : phone.replace(/\D/g, '')) : '';
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      {phone && <ActionPill icon="call" text="Call" color={colors.green} bg={colors.greenSoft} onPress={() => Linking.openURL(`tel:${phone}`).catch(() => undefined)} />}
+      {phone && <ActionPill icon="logo-whatsapp" text="WhatsApp" color={colors.whatsapp} bg={colors.greenSoft} onPress={() => Linking.openURL(`https://wa.me/${wa}`).catch(() => undefined)} />}
+      {map && <ActionPill icon="navigate" text="Directions" color={colors.brand} bg={colors.brandSoft} onPress={() => Linking.openURL(map).catch(() => undefined)} />}
+    </View>
+  );
+}
+
+/** Memoised: a list redraws only the cards whose job changed, not all of them on every refresh. */
+export const JobCard = memo(function JobCard({ job: j }: { job: Job }) {
   const p = j.customer_product;
+  const c = j.customer;
   // Brand · product type · model, as the office's job form names them.
   const product = [brandOf(p), productTypeOf(p) ?? j.product_category, modelOf(p)].filter(Boolean).join(' · ');
+  const serial = p?.serial_no || p?.outdoor_serial_no;
+  const phones = [c?.phone, c?.alt_phone].filter(Boolean).join(' · ');
   const old = (j.call_age_days ?? 0) >= 7 ? colors.red : (j.call_age_days ?? 0) >= 3 ? colors.amber : colors.muted;
   return (
     <Pressable
       onPress={() => router.push({ pathname: '/job/[id]', params: { id: j.id } })}
-      style={({ pressed }) => ({ backgroundColor: pressed ? colors.bg : colors.card, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 14, gap: 8 })}
+      style={({ pressed }) => ({ backgroundColor: pressed ? colors.bg : colors.card, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 14, gap: 10 })}
     >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <View style={{ flexShrink: 1 }}>
@@ -88,18 +124,45 @@ export function JobCard({ job: j }: { job: Job }) {
           <Badge text={j.status} />
         </View>
       </View>
+
       <ScheduleChip job={j} />
-      <View style={{ gap: 2 }}>
-        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }} numberOfLines={1}>
-          {j.customer?.name}
+
+      <View style={{ gap: 3 }}>
+        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16 }} numberOfLines={1}>
+          {c?.name}
         </Text>
-        <Text style={{ color: colors.text }} numberOfLines={1}>
-          {j.complaint_type?.name ?? 'Service'}
-          {product ? <Text style={{ color: colors.muted }}> · {product}</Text> : null}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <Icon name="construct-outline" size={14} color={colors.red} />
+          <Text style={{ color: colors.text, fontWeight: '600', flex: 1 }} numberOfLines={1}>
+            {j.complaint_type?.name ?? 'Service'}
+          </Text>
+        </View>
+        {product ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <Icon name="cube-outline" size={14} color={colors.muted} />
+            <Text style={{ color: colors.muted, fontSize: 13, flex: 1 }} numberOfLines={1}>{product}</Text>
+          </View>
+        ) : null}
+        {serial ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <Icon name="barcode-outline" size={14} color={colors.muted} />
+            <Text style={{ color: colors.muted, fontSize: 13, flex: 1 }} numberOfLines={1}>{serial}</Text>
+          </View>
+        ) : null}
       </View>
+
       <JobAddress job={j} />
+
+      {phones ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Icon name="call-outline" size={14} color={colors.muted} />
+          <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{phones}</Text>
+        </View>
+      ) : null}
+
       <JobTags job={j} />
+
+      <JobActions job={j} />
     </Pressable>
   );
-}
+});
