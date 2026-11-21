@@ -232,7 +232,6 @@ export interface Job {
   needs_resume_approval?: boolean;
   resume_requested_at?: string | null;
   resume_request_note?: string | null;
-  previous_services?: PreviousService[];
   /** Status changes and the updates added to the job (status "note"), oldest first. */
   status_history?: { id: number; status: string; remarks: string | null; changed_at: string; user?: Named | null }[];
   customer?: Customer;

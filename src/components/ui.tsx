@@ -1,7 +1,8 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
-  ActivityIndicator, KeyboardAvoidingView, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle,
+  ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { FONT, Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -104,6 +105,60 @@ export function Input(props: TextInputProps & { invalid?: boolean }) {
       multiline={multiline}
       style={[styles.input, multiline && { height: undefined, minHeight: 84, paddingTop: 12, textAlignVertical: 'top' }, invalid && { borderColor: colors.red }, style]}
     />
+  );
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const toIsoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const fromIsoDate = (s: string) => (ISO_DATE.test(s) ? new Date(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10))) : new Date());
+
+/** A date (YYYY-MM-DD) picked from the phone's calendar. Tapping the box opens it; there is no keyboard. */
+export function DateField({ value, onChange, invalid, placeholder = 'Select date', minimumDate, maximumDate }: {
+  value: string; onChange: (v: string) => void; invalid?: boolean; placeholder?: string; minimumDate?: Date; maximumDate?: Date;
+}) {
+  const [iosOpen, setIosOpen] = useState(false);
+  const [iosDate, setIosDate] = useState(() => fromIsoDate(value));
+  const open = () => {
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({ value: fromIsoDate(value), mode: 'date', minimumDate, maximumDate, onChange: (_e: DateTimePickerEvent, d?: Date) => d && onChange(toIsoDate(d)) });
+    } else {
+      setIosDate(fromIsoDate(value));
+      setIosOpen(true);
+    }
+  };
+  return (
+    <View style={{ flexDirection: 'row', gap: 8 }}>
+      <Pressable
+        onPress={open}
+        accessibilityRole="button"
+        accessibilityLabel={value ? `Date ${value}. Change` : 'Pick a date'}
+        style={[styles.input, { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, invalid && { borderColor: colors.red }]}
+      >
+        <Text style={{ fontSize: 16, color: value ? colors.text : colors.faint }}>{value || placeholder}</Text>
+        {!!value && (
+          <Pressable onPress={() => onChange('')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Clear the date">
+            <Ionicons name="close-circle" size={20} color={colors.faint} />
+          </Pressable>
+        )}
+      </Pressable>
+      <Pressable
+        onPress={open}
+        accessibilityRole="button"
+        accessibilityLabel="Pick a date"
+        style={({ pressed }) => ({ width: 48, height: 48, borderRadius: radius.sm + 2, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 })}
+      >
+        <Ionicons name="calendar-outline" size={22} color={colors.onBrand} />
+      </Pressable>
+      {iosOpen && (
+        <Modal transparent animationType="fade" onRequestClose={() => setIosOpen(false)}>
+          <Pressable style={styles.backdrop} onPress={() => setIosOpen(false)} />
+          <View style={[styles.sheet, { padding: 16, gap: 8 }]}>
+            <DateTimePicker value={iosDate} mode="date" display="inline" minimumDate={minimumDate} maximumDate={maximumDate} onChange={(_e, d) => d && setIosDate(d)} />
+            <Button title="Use this date" onPress={() => { onChange(toIsoDate(iosDate)); setIosOpen(false); }} />
+          </View>
+        </Modal>
+      )}
+    </View>
   );
 }
 

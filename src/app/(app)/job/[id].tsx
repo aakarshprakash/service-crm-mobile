@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, Share, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, Share, View } from 'react-native';
 import { Text } from '@/components/Text';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -8,7 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { callAge, date, dateTime, label, money, qty, schedule } from '@/lib/format';
 import { fieldError, isGone, useApiMutation } from '@/lib/hooks';
 import { DASHBOARD_KEY, useTechDashboard } from '@/lib/punch';
-import type { Job } from '@/lib/types';
+import type { Job, PreviousService } from '@/lib/types';
 import { toast } from '@/components/toast';
 import { Badge, Banner, BottomBar, Button, Card, ErrorView, Field, FlowSteps, Icon, Input, Loading, Muted, Screen, Sheet, type IconName } from '@/components/ui';
 import { BillSummary } from '@/components/BillSummary';
@@ -35,6 +35,7 @@ export default function JobDetail() {
 
 function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; refetch: () => void }) {
   const { user } = useAuth();
+  const qc = useQueryClient();
   const dash = useTechDashboard().data;
   const [punchFirst, setPunchFirst] = useState(false);
   const [collecting, setCollecting] = useState(false);
@@ -76,7 +77,7 @@ function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; 
         options={{
           title: job.crm_call_id,
           headerRight: () => (
-            <Pressable onPress={() => shareJob(job)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Share job details">
+            <Pressable onPress={() => shareJob(job, qc.getQueryData<PreviousService[]>(['job-previous', job.id]))} hitSlop={12} accessibilityRole="button" accessibilityLabel="Share job details">
               <Icon name="share-social-outline" size={22} color={colors.heading} />
             </Pressable>
           ),
@@ -186,25 +187,7 @@ function JobView({ job, refreshing, refetch }: { job: Job; refreshing: boolean; 
           </Card>
         )}
 
-        {!!job.previous_services?.length && (
-          <Card title="Previous service" padded={false}>
-            {job.previous_services.map((s, i) => (
-              <View key={`${s.job_id}-${i}`} style={{ padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, gap: 2 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-                  <Text style={{ fontWeight: '600', color: colors.text }}>
-                    {date(s.date)} · {s.crm_call_id}
-                  </Text>
-                  <Badge text={s.status} />
-                </View>
-                <Muted>
-                  {[s.complaint, s.action_taken, s.technician].filter(Boolean).join(' · ')}
-                  {s.total_charge ? ` · ${money(s.total_charge)}` : ''}
-                </Muted>
-                {s.summary && <Text style={{ color: colors.text, fontSize: 13 }}>{s.summary}</Text>}
-              </View>
-            ))}
-          </Card>
-        )}
+        <PreviousServices jobId={job.id} />
 
         {canStart && !active && <Button title="Ask the office to cancel this job" variant="ghost" size="sm" icon="close-circle-outline" onPress={() => setCancelling(true)} />}
       </Screen>
@@ -337,11 +320,66 @@ function mapsLink(job: Job, directions = false): string | null {
   return directions ? `https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}` : `https://maps.google.com/?q=${c.lat},${c.lng}`;
 }
 
-/** The job card as plain text, for WhatsApp or any other app (e.g. to a colleague or the office). */
-async function shareJob(job: Job) {
+/** Earlier services on this unit. Fetched only when the technician asks, so opening a job stays light. */
+function PreviousServices({ jobId }: { jobId: number }) {
+  const [open, setOpen] = useState(false);
+  const q = useQuery({
+    queryKey: ['job-previous', jobId],
+    queryFn: () => api.get<Envelope<PreviousService[]>>(`/jobs/${jobId}/previous-services`).then((r) => r.data),
+    enabled: open,
+    staleTime: 5 * 60_000,
+  });
+  if (!open) return <Button title="Show previous service history" variant="secondary" size="sm" icon="time-outline" onPress={() => setOpen(true)} />;
+  const items = q.data ?? [];
+  return (
+    <Card
+      title="Previous service"
+      padded={false}
+      right={
+        <Pressable onPress={() => setOpen(false)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Hide previous service history">
+          <Text style={{ color: colors.brand, fontWeight: '600' }}>Hide</Text>
+        </Pressable>
+      }
+    >
+      {q.isPending ? (
+        <View style={{ padding: 16, alignItems: 'center' }}>
+          <ActivityIndicator color={colors.brand} />
+        </View>
+      ) : q.isError ? (
+        <View style={{ padding: 14, gap: 8 }}>
+          <Muted>Couldn’t load the history.</Muted>
+          <Button title="Try again" variant="secondary" size="sm" onPress={() => q.refetch()} />
+        </View>
+      ) : !items.length ? (
+        <View style={{ padding: 14 }}>
+          <Muted>No earlier service found for this unit.</Muted>
+        </View>
+      ) : (
+        items.map((s, i) => (
+          <View key={`${s.job_id}-${i}`} style={{ padding: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border, gap: 2 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+              <Text style={{ fontWeight: '600', color: colors.text }}>
+                {date(s.date)} · {s.crm_call_id}
+              </Text>
+              <Badge text={s.status} />
+            </View>
+            <Muted>
+              {[s.complaint, s.action_taken, s.technician].filter(Boolean).join(' · ')}
+              {s.total_charge ? ` · ${money(s.total_charge)}` : ''}
+            </Muted>
+            {s.summary && <Text style={{ color: colors.text, fontSize: 13 }}>{s.summary}</Text>}
+          </View>
+        ))
+      )}
+    </Card>
+  );
+}
+
+/** The job card as plain text, for WhatsApp or any other app (e.g. to a colleague or the office). `previous` is included when the history was already opened. */
+async function shareJob(job: Job, previous?: PreviousService[]) {
   const c = job.customer;
   const p = job.customer_product;
-  const last = job.previous_services?.[0];
+  const last = previous?.[0];
   const lines = [
     `Job ${job.crm_call_id} · ${label(job.status)} · ${label(job.priority)} priority`,
     `Visit: ${schedule(job.scheduled_at).text}`,

@@ -14,7 +14,7 @@ import { date, hours, money, monthName, num, relative, today } from '@/lib/forma
 import type { AttendanceDay, LeaveBalance, LeaveRequest, Payslip } from '@/lib/types';
 import { toast } from '@/components/toast';
 import { ChangePasswordForm } from '@/components/ChangePassword';
-import { Badge, Button, Card, Field, Icon, Input, Loading, Muted, Screen, Segmented, Sheet } from '@/components/ui';
+import { Badge, Button, Card, DateField, Field, Icon, Input, Loading, Muted, Screen, Segmented, Sheet } from '@/components/ui';
 import { colors, dayTone } from '@/components/theme';
 
 function shiftMonth(month: string, n: number) {
@@ -383,14 +383,14 @@ function ApplyLeave({ onClose }: { onClose: () => void }) {
       </Field>
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
-          <Field label={form.half_day ? 'Date' : 'From'} error={e('from_date')} hint="YYYY-MM-DD">
-            <Input value={form.from_date} keyboardType="numbers-and-punctuation" maxLength={10} onChangeText={(v) => setForm({ ...form, from_date: v, to_date: valid.test(v) && v > form.to_date ? v : form.to_date })} />
+          <Field label={form.half_day ? 'Date' : 'From'} error={e('from_date')}>
+            <DateField value={form.from_date} invalid={!!e('from_date')} onChange={(v) => setForm({ ...form, from_date: v, to_date: valid.test(v) && v > form.to_date ? v : form.to_date })} />
           </Field>
         </View>
         {!form.half_day && (
           <View style={{ flex: 1 }}>
-            <Field label="To" error={e('to_date')} hint="YYYY-MM-DD">
-              <Input value={form.to_date} keyboardType="numbers-and-punctuation" maxLength={10} onChangeText={(v) => setForm({ ...form, to_date: v })} />
+            <Field label="To" error={e('to_date')}>
+              <DateField value={form.to_date} invalid={!!e('to_date')} onChange={(v) => setForm({ ...form, to_date: v })} />
             </Field>
           </View>
         )}
