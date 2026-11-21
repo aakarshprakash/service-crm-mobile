@@ -11,7 +11,7 @@ import { enqueueReceipt, useUploads } from '@/lib/uploads';
 import type { ExpenseClaim, Job } from '@/lib/types';
 import { Text } from '@/components/Text';
 import { toast } from '@/components/toast';
-import { Badge, Button, Card, Empty, ErrorView, Field, Icon, Input, Loading, Muted, Screen, Segmented, Sheet } from '@/components/ui';
+import { Badge, Button, Card, DateField, Empty, ErrorView, Field, Icon, Input, Loading, Muted, Screen, Segmented, Sheet } from '@/components/ui';
 import { colors } from '@/components/theme';
 
 type ClaimsPage = Paginated<ExpenseClaim> & { meta: { pending_amount: number; month_amount: number } };
@@ -192,7 +192,7 @@ function AddExpense({ onClose }: { onClose: () => void }) {
           options={[{ value: 'today', label: 'Today' }, { value: 'yesterday', label: 'Yesterday' }, { value: 'other', label: 'Other' }]}
         />
         {form.claim_date !== today() && form.claim_date !== yesterday && (
-          <Input value={form.claim_date} keyboardType="numbers-and-punctuation" maxLength={10} onChangeText={(v) => set('claim_date', v)} placeholder="YYYY-MM-DD" />
+          <DateField value={form.claim_date} onChange={(v) => set('claim_date', v)} maximumDate={new Date()} />
         )}
       </Field>
       <Field label="For a job (optional)" error={e('job_id')}>

@@ -7,7 +7,7 @@ import type { Job } from '@/lib/types';
 import { toast } from '@/components/toast';
 import { BarcodeScanner } from '@/components/BarcodeScanner';
 import { Detail, LockedTag, brandOf, modelOf, productTypeOf } from '@/components/JobDetails';
-import { Button, Card, Field, Icon, Input, Sheet } from '@/components/ui';
+import { Button, Card, DateField, Field, Icon, Input, Sheet } from '@/components/ui';
 import { colors, radius } from '@/components/theme';
 
 export type CallForm = ReturnType<typeof initialCallForm>;
@@ -103,15 +103,10 @@ function PickerField({ title, value, options, onChange, error, clearable, placeh
   );
 }
 
-/** YYYY-MM-DD typed as digits, the same way as the leave form's dates. */
-function DateInput({ title, value, onChange, error, required, hint }: { title: string; value: string; onChange: (v: string) => void; error?: string; required?: boolean; hint?: string }) {
-  const change = (v: string) => {
-    const d = v.replace(/\D/g, '').slice(0, 8);
-    onChange([d.slice(0, 4), d.slice(4, 6), d.slice(6, 8)].filter(Boolean).join('-'));
-  };
+function DateInput({ title, value, onChange, error, required, hint, maximumDate }: { title: string; value: string; onChange: (v: string) => void; error?: string; required?: boolean; hint?: string; maximumDate?: Date }) {
   return (
     <Field label={title} error={error} required={required} hint={hint}>
-      <Input value={value} keyboardType="number-pad" maxLength={10} placeholder="YYYY-MM-DD" invalid={!!error} onChangeText={change} />
+      <DateField value={value} onChange={onChange} invalid={!!error} maximumDate={maximumDate} />
     </Field>
   );
 }
@@ -178,6 +173,7 @@ export function ProductFields({ job, form, set, error, scanHint = 'Scanned.' }: 
           value={form.purchase_date}
           onChange={(v) => set('purchase_date', v)}
           error={error('purchase_date')}
+          maximumDate={new Date()}
           required={form.warranty_type === 'in_warranty'}
           hint={form.warranty_type === 'in_warranty' ? 'Needed for a unit in warranty. See the bill or warranty card.' : undefined}
         />
